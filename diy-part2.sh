@@ -19,3 +19,6 @@
 # Modify hostname
 #sed -i 's/OpenWrt/P3TERX-Router/g' package/base-files/files/bin/config_generate
 git clone https://github.com/gdy666/luci-app-lucky.git package/lucky
+# 打开你的云编译仓库里的 diy-part2.sh (或者在 .yml 文件的相关运行步骤中)
+# 添加下面这行代码：
+sed -i 's/KERNEL_PATCHVER:=.*/KERNEL_PATCHVER:=6.18/g' target/linux/x86/Makefile
