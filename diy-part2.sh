@@ -18,4 +18,12 @@
 
 # Modify hostname
 #sed -i 's/OpenWrt/P3TERX-Router/g' package/base-files/files/bin/config_generate
+# 1. 拉取 lucky 源码 (根据你说的情况，这是必须的)
 git clone https://github.com/gdy666/luci-app-lucky.git package/lucky
+
+# 2. 拉取 daed 源码 (别忘了这个，官方源里也没有)
+git clone https://github.com/QiuSimons/luci-app-daed package/dae
+
+# 3. 强制升级 Golang 版本 (命脉：否则 daed 很大几率编译失败)
+rm -rf feeds/packages/lang/golang
+git clone https://github.com/sbwml/packages_lang_golang -b 26.x feeds/packages/lang/golang
