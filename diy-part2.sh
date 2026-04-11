@@ -33,5 +33,10 @@ git clone https://github.com/QiuSimons/luci-app-daed package/dae
 rm -rf feeds/packages/lang/golang
 git clone https://github.com/sbwml/packages_lang_golang -b 26.x feeds/packages/lang/golang
 
-# 强制让内核配置自动接受新版本的默认值，防止云编译卡死在交互界面
+# 4. 强行回答内核编译时的 BPF 交互提问，彻底消灭 [N/y/?] 卡死问题
+echo "CONFIG_KERNEL_NET_SCH_BPF=y" >> .config
+echo "CONFIG_KERNEL_NET_CLS_BPF=y" >> .config
+echo "CONFIG_KERNEL_CGROUP_BPF=y" >> .config
+
+# 5. 强制让内核配置自动接受新版本的默认值 (完美适配 6.18 测试内核)
 make target/linux/refresh V=s
