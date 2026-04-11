@@ -18,6 +18,11 @@
 
 # Modify hostname
 #sed -i 's/OpenWrt/P3TERX-Router/g' package/base-files/files/bin/config_generate
+
+# 0. 补充安装缺失的系统级依赖 (解决 Error 127 的关键)
+sudo apt-get update
+sudo apt-get install -y quilt
+
 # 1. 拉取 lucky 源码 (根据你说的情况，这是必须的)
 git clone https://github.com/gdy666/luci-app-lucky.git package/lucky
 
