@@ -27,3 +27,6 @@ git clone https://github.com/QiuSimons/luci-app-daed package/dae
 # 3. 强制升级 Golang 版本 (命脉：否则 daed 很大几率编译失败)
 rm -rf feeds/packages/lang/golang
 git clone https://github.com/sbwml/packages_lang_golang -b 26.x feeds/packages/lang/golang
+
+# 强制让内核配置自动接受新版本的默认值，防止云编译卡死在交互界面
+make target/linux/refresh V=s
