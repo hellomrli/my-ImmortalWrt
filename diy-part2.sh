@@ -25,6 +25,3 @@ git clone https://github.com/gdy666/luci-app-lucky.git package/lucky
 # 2. 强制升级 Golang 版本 (命脉：否则 daed 很大几率编译失败)
 rm -rf feeds/packages/lang/golang
 git clone https://github.com/sbwml/packages_lang_golang -b 26.x feeds/packages/lang/golang
-
-# 3. 强制让内核配置自动接受新版本的默认值 (完美适配 6.18 测试内核)
-make target/linux/refresh V=s
