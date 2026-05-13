@@ -25,3 +25,37 @@ git clone https://github.com/gdy666/luci-app-lucky.git package/lucky
 # 2. 强制升级 Golang 版本 (命脉：否则 daed 很大几率编译失败)
 rm -rf feeds/packages/lang/golang
 git clone https://github.com/sbwml/packages_lang_golang -b 26.x feeds/packages/lang/golang
+
+# 3. 生成自定义 fstab 配置文件 (修复 block-mount 报错)
+mkdir -p package/base-files/files/etc/config
+cat > package/base-files/files/etc/config/fstab << 'FSTAB'
+config global
+	option anon_swap '0'
+	option anon_mount '0'
+	option auto_swap '0'
+	option auto_mount '1'
+	option delay_root '5'
+	option check_fs '0'
+
+config mount
+	option target '/boot'
+	option device '/dev/sda1'
+	option enabled '1'
+
+config mount
+	option target '/'
+	option device '/dev/sda2'
+	option enabled '1'
+FSTAB
+
+# 4. 替换 APK 默认源为清华镜像
+mkdir -p package/base-files/files/etc/apk
+cat > package/base-files/files/etc/apk/repositories << 'APKREPOS'
+https://mirrors.tuna.tsinghua.edu.cn/openwrt/snapshots/targets/x86/64/packages
+https://mirrors.tuna.tsinghua.edu.cn/openwrt/snapshots/packages/x86_64/base
+https://mirrors.tuna.tsinghua.edu.cn/openwrt/snapshots/packages/x86_64/luci
+https://mirrors.tuna.tsinghua.edu.cn/openwrt/snapshots/packages/x86_64/packages
+https://mirrors.tuna.tsinghua.edu.cn/openwrt/snapshots/packages/x86_64/routing
+https://mirrors.tuna.tsinghua.edu.cn/openwrt/snapshots/packages/x86_64/telephony
+https://mirrors.tuna.tsinghua.edu.cn/openwrt/snapshots/packages/x86_64/video
+APKREPOS
