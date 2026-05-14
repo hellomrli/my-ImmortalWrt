@@ -48,14 +48,19 @@ config mount
 	option enabled '1'
 FSTAB
 
-# 4. 替换 APK 默认源为清华镜像
-mkdir -p package/base-files/files/etc/apk
+# 4. 保持 APK 默认源由 ImmortalWrt 构建系统生成，避免混入目录格式源导致 apk update 拉取 APKINDEX.tar.gz
+mkdir -p package/base-files/files/etc/apk/repositories.d
 cat > package/base-files/files/etc/apk/repositories << 'APKREPOS'
-https://mirrors.tuna.tsinghua.edu.cn/openwrt/snapshots/targets/x86/64/packages
-https://mirrors.tuna.tsinghua.edu.cn/openwrt/snapshots/packages/x86_64/base
-https://mirrors.tuna.tsinghua.edu.cn/openwrt/snapshots/packages/x86_64/luci
-https://mirrors.tuna.tsinghua.edu.cn/openwrt/snapshots/packages/x86_64/packages
-https://mirrors.tuna.tsinghua.edu.cn/openwrt/snapshots/packages/x86_64/routing
-https://mirrors.tuna.tsinghua.edu.cn/openwrt/snapshots/packages/x86_64/telephony
-https://mirrors.tuna.tsinghua.edu.cn/openwrt/snapshots/packages/x86_64/video
+# OpenWrt apk feeds are managed in /etc/apk/repositories.d/distfeeds.list
+# Add custom feeds to /etc/apk/repositories.d/customfeeds.list
 APKREPOS
+cat > package/base-files/files/etc/apk/repositories.d/customfeeds.list << 'APKREPOS'
+# add your custom package feeds here
+#
+# http://www.example.com/path/to/files/packages.adb
+APKREPOS
+
+# 5. 移除 video 软件源；当前镜像的 video/packages.adb 容易同步不完整，导致 apk update 失败
+sed -i '/^CONFIG_FEED_video=y/d' .config 2>/dev/null || true
+sed -i '/^# CONFIG_FEED_video is not set/d' .config 2>/dev/null || true
+echo '# CONFIG_FEED_video is not set' >> .config

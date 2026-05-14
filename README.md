@@ -12,7 +12,7 @@
 | **默认账号** | root |
 | **默认密码** | 无密码（首次登录需设置） |
 | **文件格式** | ext4 + squashfs |
-| **软件源** | 清华镜像 (`mirrors.tuna.tsinghua.edu.cn`) |
+| **软件源** | 使用 ImmortalWrt 构建生成的 APK 源（不再额外覆盖为清华目录源） |
 | **包管理** | APK |
 | **链接器** | MOLD |
 
@@ -38,7 +38,7 @@
 
 ## 主要特性
 
-- ✅ 预置清华 APK 软件源，开箱即用
+- ✅ 使用构建生成的 APK 源，并移除 video 源以避免 `apk update` 因镜像同步不完整失败
 - ✅ 预置 `/etc/config/fstab` 挂载配置，告别 block-mount 报错
 - ✅ 关闭自动挂载扫描，避免 Hyper-V 虚拟磁盘识别错误
 - ✅ 关闭独立 var 分区模式，单盘即可使用
@@ -72,4 +72,3 @@ gunzip -c openwrt-*-generic-squashfs-combined-efi.img.gz | dd of=/dev/sda bs=4M 
 
 - [ImmortalWrt](https://github.com/immortalwrt/immortalwrt)
 - [P3TERX/Actions-OpenWrt](https://github.com/P3TERX/Actions-OpenWrt)
-- [清华镜像站](https://mirrors.tuna.tsinghua.edu.cn)
