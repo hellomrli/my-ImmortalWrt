@@ -49,15 +49,12 @@ config mount
 FSTAB
 
 # 4. 保持 APK 默认源由 ImmortalWrt 构建系统生成，避免混入目录格式源导致 apk update 拉取 APKINDEX.tar.gz
-mkdir -p package/base-files/files/etc/apk/repositories.d
+# 不要预置 /etc/apk/repositories.d/customfeeds.list：该文件由 apk-openssl 包提供，
+# 放进 base-files 会在 package/install 阶段触发文件归属冲突。
+mkdir -p package/base-files/files/etc/apk
 cat > package/base-files/files/etc/apk/repositories << 'APKREPOS'
 # OpenWrt apk feeds are managed in /etc/apk/repositories.d/distfeeds.list
 # Add custom feeds to /etc/apk/repositories.d/customfeeds.list
-APKREPOS
-cat > package/base-files/files/etc/apk/repositories.d/customfeeds.list << 'APKREPOS'
-# add your custom package feeds here
-#
-# http://www.example.com/path/to/files/packages.adb
 APKREPOS
 
 # 5. 移除 video 软件源；当前镜像的 video/packages.adb 容易同步不完整，导致 apk update 失败

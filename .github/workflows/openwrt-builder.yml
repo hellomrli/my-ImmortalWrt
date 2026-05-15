@@ -94,13 +94,14 @@ jobs:
         make download -j8
         find dl -size -1024c -exec ls -l {} \;
         find dl -size -1024c -exec rm -f {} \;
+        find dl -size -1024c -print -quit | grep -q . && { echo "Small/invalid download files remain after cleanup"; exit 1; } || true
 
     - name: Compile firmware
       id: compile
       run: |
         cd openwrt
         echo -e "$(nproc) thread compile"
-        make -j$(nproc) || make -j1 || make -j1 V=s
+        make -j$(nproc) || make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
         grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME
         [ -s DEVICE_NAME ] && echo "DEVICE_NAME=_$(cat DEVICE_NAME)" >> $GITHUB_ENV
@@ -123,6 +124,11 @@ jobs:
       if: env.UPLOAD_FIRMWARE == 'true' && !cancelled()
       run: |
         cd openwrt/bin/targets/*/*
+        if ! find . -maxdepth 1 -type f \( -name '*.img.gz' -o -name '*kernel.bin' -o -name '*rootfs.tar.gz' \) -print -quit | grep -q .; then
+          echo "No firmware images were generated; treating build as failed. Directory contents:"
+          find . -maxdepth 1 -type f -printf '%f\n' | sort
+          exit 1
+        fi
         rm -rf packages
         echo "FIRMWARE=$PWD" >> $GITHUB_ENV
         echo "status=success" >> $GITHUB_OUTPUT
