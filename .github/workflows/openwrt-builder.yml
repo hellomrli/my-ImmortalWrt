@@ -17,7 +17,7 @@ on:
   workflow_dispatch:
     inputs:
       branches:
-        description: 'Branches to build (comma separated, or "all")'
+        description: 'Branches to build (comma separated JSON array, or "all")'
         required: false
         default: 'all'
         type: string
@@ -38,7 +38,7 @@ jobs:
     runs-on: ubuntu-22.04
     strategy:
       matrix:
-        branch: ${{ fromJSON(inputs.branches == 'all' && '["master", "openwrt-25.12"]' || inputs.branches) }}
+        branch: ${{ github.event_name == 'repository_dispatch' && fromJSON('["master"]') || fromJSON(inputs.branches == 'all' && '["master", "openwrt-25.12"]' || inputs.branches) }}
 
     steps:
     - name: Checkout
