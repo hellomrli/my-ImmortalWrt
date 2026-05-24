@@ -57,23 +57,6 @@
 - ✅ 为 watchdog 补充运行依赖：`bash`、`curl`、`jq`、`flock`
 - ✅ 集成 SQM / CAKE / IFB / BBR 相关组件，便于按需开启延迟优化
 
-## 未集成 / 暂不启用
-
-- ❌ `irqbalance`：实测效果不佳，暂不加入
-- ❌ SFTP / OpenSSH：不使用 SSH 管理，避免增加暴露面
-- ❌ `open-vm-tools`：ESXi 环境使用，当前 PVE 场景不需要
-- ❌ `snmpd`：仅在需要兼容爱快终端 MAC 显示时再考虑
-- ❌ Shortcut-FE / Fast Classifier：当前使用 firewall4 + nft Flow Offloading 方向，不再额外启用旧加速方案
-
-## 自定义源码调整
-
-- `diy-part2.sh` 拉取 `luci-app-lucky`
-- `diy-part1.sh` 拉取 `sirpdboy/luci-app-watchdog`
-- `diy-part2.sh` 升级 Golang 到 `sbwml/packages_lang_golang` 的 `26.x` 分支
-- `diy-part2.sh` 写入默认 fstab 配置
-- `diy-part2.sh` 保持 APK 源由 ImmortalWrt 构建系统生成
-- `diy-part2.sh` 禁用 video feed
-
 ## 致谢
 
 - [ImmortalWrt](https://github.com/immortalwrt/immortalwrt)
