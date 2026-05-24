@@ -45,29 +45,6 @@
 - ✅ 签名包验证，安全加固
 - ✅ MOLD 链接器，加速编译
 
-## 使用方法
-
-### 触发编译
-
-GitHub → **Actions** → **OpenWrt Builder** → **Run workflow** → 选择分支（留空则同时编译 master 和 openwrt-25.12）
-
-### 下载固件
-
-编译完成后在对应 Release 中下载 `*-generic-squashfs-combined-efi.img.gz`，写入虚拟机或物理机即可。
-
-### 写入参考命令
-
-```bash
-# 解压并写入虚拟机磁盘（请勿在生产环境执行！）
-gunzip -c openwrt-*-generic-squashfs-combined-efi.img.gz | dd of=/dev/sda bs=4M status=progress
-```
-
-## 自定义配置
-
-修改项目根目录下的 `.config` 文件，然后重新触发编译。
-
-原始配置文件已备份在 `backup/.config`，修复版本为当前默认配置。
-
 ## 致谢
 
 - [ImmortalWrt](https://github.com/immortalwrt/immortalwrt)
