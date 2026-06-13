@@ -58,6 +58,27 @@ jobs:
         sudo mkdir -p /workdir
         sudo chown $USER:$GROUPS /workdir
 
+    - name: Cache OpenWrt DL
+      uses: actions/cache@v4
+      with:
+        path: openwrt/dl
+        key: ${{ runner.os }}-dl-${{ matrix.branch }}-${{ hashFiles('.config') }}
+        restore-keys: |
+          ${{ runner.os }}-dl-${{ matrix.branch }}-
+          ${{ runner.os }}-dl-
+
+    - name: Cache OpenWrt Build
+      uses: actions/cache@v4
+      with:
+        path: |
+          openwrt/.ccache
+          openwrt/staging_dir/host
+          openwrt/staging_dir/hostpkg
+          openwrt/staging_dir/toolchain-*
+        key: ${{ runner.os }}-build-${{ matrix.branch }}-${{ hashFiles('.config') }}
+        restore-keys: |
+          ${{ runner.os }}-build-${{ matrix.branch }}-
+
     - name: Clone source code
       working-directory: /workdir
       run: |
@@ -101,7 +122,28 @@ jobs:
       run: |
         cd openwrt
         echo -e "$(nproc) thread compile"
-        make -j$(nproc) || make -j1 V=s
+        echo "===================="
+        echo "Build started at: $(date '+%Y-%m-%d %H:%M:%S')"
+        echo "Branch: ${{ matrix.branch }}"
+        echo "===================="
+        
+        # 第一次尝试：多线程编译
+        if make -j$(nproc); then
+          echo "✅ Multi-thread build successful"
+        # 第二次尝试：单线程详细日志
+        elif make -j1 V=s; then
+          echo "⚠️ Single-thread build successful (multi-thread failed)"
+        # 第三次尝试：清理后重试
+        elif make clean && make -j1 V=s; then
+          echo "⚠️ Build successful after clean (previous attempts failed)"
+        else
+          echo "❌ All build attempts failed"
+          exit 1
+        fi
+        
+        echo "===================="
+        echo "Build completed at: $(date '+%Y-%m-%d %H:%M:%S')"
+        echo "===================="
         echo "status=success" >> $GITHUB_OUTPUT
         grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME
         [ -s DEVICE_NAME ] && echo "DEVICE_NAME=_$(cat DEVICE_NAME)" >> $GITHUB_ENV
@@ -146,6 +188,24 @@ jobs:
       run: |
         echo "release_tag=${{ matrix.branch }}-$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
         touch release.txt
+        echo "📦 **ImmortalWrt x86_64 固件**" >> release.txt
+        echo "" >> release.txt
+        echo "🔹 **分支**: \`${{ matrix.branch }}\`" >> release.txt
+        echo "🔹 **构建日期**: $(date '+%Y-%m-%d %H:%M:%S')" >> release.txt
+        echo "🔹 **内核版本**: Linux 6.18" >> release.txt
+        echo "" >> release.txt
+        echo "### 默认配置" >> release.txt
+        echo "- IP: 192.168.1.1" >> release.txt
+        echo "- 用户名: root" >> release.txt
+        echo "- 密码: 无（首次登录需设置）" >> release.txt
+        echo "" >> release.txt
+        echo "### 已集成插件" >> release.txt
+        echo "- OpenClash" >> release.txt
+        echo "- Lucky" >> release.txt
+        echo "- Watchdog" >> release.txt
+        echo "- SQM" >> release.txt
+        echo "" >> release.txt
+        echo "📖 [完整文档](https://github.com/hellomrli/my-ImmortalWrt/blob/main/README.md)" >> release.txt
         [ ${UPLOAD_GOFILE} = true && ${{ steps.gofile.outputs.url }} ] && echo "🔗 [GoFile](${{ steps.gofile.outputs.url }})" >> release.txt
         echo "status=success" >> $GITHUB_OUTPUT
 

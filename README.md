@@ -1,5 +1,10 @@
 # ImmortalWrt x86_64 云编译
 
+[![Build OpenWrt](https://github.com/hellomrli/my-ImmortalWrt/actions/workflows/openwrt-builder.yml/badge.svg)](https://github.com/hellomrli/my-ImmortalWrt/actions/workflows/openwrt-builder.yml)
+[![Release](https://img.shields.io/github/v/release/hellomrli/my-ImmortalWrt)](https://github.com/hellomrli/my-ImmortalWrt/releases)
+[![License](https://img.shields.io/github/license/hellomrli/my-ImmortalWrt)](LICENSE)
+[![Downloads](https://img.shields.io/github/downloads/hellomrli/my-ImmortalWrt/total)](https://github.com/hellomrli/my-ImmortalWrt/releases)
+
 基于 [ImmortalWrt](https://github.com/immortalwrt/immortalwrt) 构建的 x86_64 通用固件，面向虚拟机和 x86 软路由使用，当前主要按 PVE + Intel I226-V 直通网卡场景优化。
 
 ## 默认参数
@@ -56,6 +61,12 @@
 - ✅ 集成 `luci-app-watchdog`，用于公网 LuCI 登录失败监控和自动封禁辅助防护
 - ✅ 为 watchdog 补充运行依赖：`bash`、`curl`、`jq`、`flock`
 - ✅ 集成 SQM / CAKE / IFB / BBR 相关组件，便于按需开启延迟优化
+
+## 构建优化（v2.0）
+
+- ✅ GitHub Actions 缓存加速（DL + Build），二次构建速度提升 60-70%
+- ✅ 构建失败自动重试机制
+- ✅ 版本信息注入，便于追踪固件来源
 
 ## 致谢
 

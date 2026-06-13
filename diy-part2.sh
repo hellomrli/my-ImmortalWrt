@@ -61,3 +61,19 @@ APKREPOS
 sed -i '/^CONFIG_FEED_video=y/d' .config 2>/dev/null || true
 sed -i '/^# CONFIG_FEED_video is not set/d' .config 2>/dev/null || true
 echo '# CONFIG_FEED_video is not set' >> .config
+
+# 6. 构建信息输出
+echo "===================="
+echo "Custom Build Info"
+echo "Branch: $(git -C . describe --tags --always 2>/dev/null || echo 'unknown')"
+echo "Build Date: $(date '+%Y-%m-%d %H:%M:%S')"
+echo "Build Host: GitHub Actions"
+echo "===================="
+
+# 7. 创建版本标识文件（注入到固件）
+mkdir -p package/base-files/files/etc
+cat > package/base-files/files/etc/openwrt_release_custom << RELEASE
+BUILD_DATE="$(date '+%Y%m%d%H%M')"
+BUILD_REPO="hellomrli/my-ImmortalWrt"
+BUILD_DESC="ImmortalWrt x86_64 for PVE"
+RELEASE
