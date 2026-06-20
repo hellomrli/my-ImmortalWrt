@@ -1,0 +1,8 @@
+# OpenWrt 配置文件
+.config linguist-language=Shell
+
+# 忽略文档
+*.md linguist-documentation
+
+# 标记主要语言
+*.sh linguist-language=Shell
