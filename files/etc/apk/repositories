@@ -1,2 +1,0 @@
-# OpenWrt apk feeds are managed in /etc/apk/repositories.d/distfeeds.list
-# Add custom feeds to /etc/apk/repositories.d/customfeeds.list

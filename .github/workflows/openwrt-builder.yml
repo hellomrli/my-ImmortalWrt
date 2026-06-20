@@ -22,6 +22,10 @@ on:
         default: 'all'
         type: string
 
+permissions:
+  actions: write
+  contents: write
+
 env:
   REPO_URL: https://github.com/immortalwrt/immortalwrt
   FEEDS_CONF: feeds.conf.default
@@ -36,13 +40,17 @@ env:
 jobs:
   build:
     runs-on: ubuntu-24.04
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}-${{ matrix.branch }}
+      cancel-in-progress: false
     strategy:
+      fail-fast: false
       matrix:
         branch: ${{ github.event_name == 'repository_dispatch' && fromJSON('["master"]') || fromJSON(inputs.branches == 'all' && '["master", "openwrt-25.12"]' || inputs.branches) }}
 
     steps:
     - name: Checkout
-      uses: actions/checkout@main
+      uses: actions/checkout@v4
 
     - name: Init environment
       env:
@@ -58,6 +66,11 @@ jobs:
         sudo mkdir -p /workdir
         sudo chown $USER:$GROUPS /workdir
 
+    - name: Clone source code
+      run: |
+        df -hT "$PWD"
+        git clone --depth 1 ${{ env.REPO_URL }} -b ${{ matrix.branch }} openwrt
+
     - name: Cache OpenWrt DL
       uses: actions/cache@v4
       with:
@@ -70,21 +83,10 @@ jobs:
     - name: Cache OpenWrt Build
       uses: actions/cache@v4
       with:
-        path: |
-          openwrt/.ccache
-          openwrt/staging_dir/host
-          openwrt/staging_dir/hostpkg
-          openwrt/staging_dir/toolchain-*
+        path: openwrt/.ccache
         key: ${{ runner.os }}-build-${{ matrix.branch }}-${{ hashFiles('.config', 'diy-part1.sh', 'diy-part2.sh') }}
         restore-keys: |
           ${{ runner.os }}-build-${{ matrix.branch }}-
-
-    - name: Clone source code
-      working-directory: /workdir
-      run: |
-        df -hT $PWD
-        git clone ${{ env.REPO_URL }} -b ${{ matrix.branch }} openwrt
-        ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
 
     - name: Load custom feeds
       run: |
@@ -155,7 +157,7 @@ jobs:
       run: df -hT
 
     - name: Upload bin directory
-      uses: actions/upload-artifact@main
+      uses: actions/upload-artifact@v4
       if: steps.compile.outputs.status == 'success' && env.UPLOAD_BIN_DIR == 'true'
       with:
         name: OpenWrt_bin${{ env.DEVICE_NAME }}${{ env.BRANCH_NAME }}${{ env.FILE_DATE }}
@@ -176,7 +178,7 @@ jobs:
         echo "status=success" >> $GITHUB_OUTPUT
 
     - name: Upload firmware
-      uses: actions/upload-artifact@main
+      uses: actions/upload-artifact@v4
       if: steps.organize.outputs.status == 'success' && !cancelled()
       with:
         name: OpenWrt_firmware${{ env.DEVICE_NAME }}${{ env.BRANCH_NAME }}${{ env.FILE_DATE }}
@@ -191,11 +193,12 @@ jobs:
         echo "📦 **ImmortalWrt x86_64 固件**" >> release.txt
         echo "" >> release.txt
         echo "🔹 **分支**: \`${{ matrix.branch }}\`" >> release.txt
+        echo "🔹 **OpenClash**: \`vernesong/OpenClash\`" >> release.txt
         echo "🔹 **构建日期**: $(date '+%Y-%m-%d %H:%M:%S')" >> release.txt
         echo "🔹 **内核版本**: Linux 6.18" >> release.txt
         echo "" >> release.txt
         echo "### 默认配置" >> release.txt
-        echo "- IP: 192.168.1.1" >> release.txt
+        echo "- IP: 192.168.50.1" >> release.txt
         echo "- 用户名: root" >> release.txt
         echo "- 密码: 无（首次登录需设置）" >> release.txt
         echo "" >> release.txt
@@ -210,7 +213,7 @@ jobs:
         echo "status=success" >> $GITHUB_OUTPUT
 
     - name: Upload to release
-      uses: softprops/action-gh-release@master
+      uses: softprops/action-gh-release@v2
       if: steps.organize.outputs.status == 'success' && steps.tag.outputs.status == 'success' && !cancelled()
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -220,15 +223,21 @@ jobs:
         files: ${{ env.FIRMWARE }}/*
 
     - name: Delete workflow runs
-      uses: Mattraks/delete-workflow-runs@main
-      with:
-        retain_days: 0
-        keep_minimum_runs: 2
+      if: always()
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        gh run list --workflow="${{ github.workflow }}" --limit 100 --json databaseId,status --jq '.[] | select(.status != "in_progress") | .databaseId' > old-runs.txt
+        tail -n +3 old-runs.txt | while read -r run_id; do
+          [ -n "$run_id" ] && gh run delete "$run_id" || true
+        done
 
     - name: Remove old releases
-      uses: dev-drprasad/delete-older-releases@master
       if: env.UPLOAD_RELEASE == 'true' && !cancelled()
-      with:
-        keep_latest: 3
       env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        gh release list --limit 100 --json tagName --jq '.[3:][].tagName' > old-releases.txt
+        while read -r tag; do
+          [ -n "$tag" ] && gh release delete "$tag" --yes --cleanup-tag || true
+        done < old-releases.txt

@@ -12,6 +12,10 @@
 
 name: Update Checker
 
+permissions:
+  actions: write
+  contents: write
+
 env:
   REPO_URL: https://github.com/immortalwrt/immortalwrt
   REPO_BRANCH: master
@@ -47,13 +51,17 @@ jobs:
 
     - name: Trigger build
       if: steps.cacheHash.outputs.cache-hit != 'true'
-      uses: peter-evans/repository-dispatch@v2
+      uses: peter-evans/repository-dispatch@v3
       with:
         token: ${{ github.token }}
         event-type: Source Code Update
 
     - name: Delete workflow runs
-      uses: Mattraks/delete-workflow-runs@v2
-      with:
-        retain_days: 0
-        keep_minimum_runs: 2
+      if: always()
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        gh run list --workflow="${{ github.workflow }}" --limit 100 --json databaseId,status --jq '.[] | select(.status != "in_progress") | .databaseId' > old-runs.txt
+        tail -n +3 old-runs.txt | while read -r run_id; do
+          [ -n "$run_id" ] && gh run delete "$run_id" || true
+        done

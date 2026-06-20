@@ -14,7 +14,7 @@
 | **架构** | x86_64 generic |
 | **目标设备** | x86/64 Generic |
 | **内核版本** | Linux 6.18 |
-| **默认 IP** | 192.168.1.1 |
+| **默认 IP** | 192.168.50.1 |
 | **默认账号** | root |
 | **默认密码** | 无密码（首次登录需设置） |
 | **文件格式** | ext4 + squashfs + rootfs.tar.gz |
@@ -34,7 +34,7 @@
 
 - `luci-app-firewall` — 防火墙管理
 - `luci-app-lucky` — Lucky 网络工具 / 端口转发等功能
-- `luci-app-openclash` — OpenClash 客户端
+- `luci-app-openclash` — OpenClash 客户端（来自 `vernesong/OpenClash`）
 - `luci-app-package-manager` — 在线包管理
 - `luci-app-sqm` — SQM / CAKE 队列管理
 - `luci-app-upnp` — UPnP 端口映射
@@ -48,6 +48,7 @@
 
 - ✅ 面向 x86_64 软路由构建，支持 ext4、squashfs、rootfs.tar.gz 和 EFI 启动镜像
 - ✅ 使用 ImmortalWrt 默认生成的 APK 软件源，不额外覆盖为第三方目录源
+- ✅ 默认 IP 调整为 `192.168.50.1`
 - ✅ 移除 video feed，避免镜像同步不完整导致 `apk update` 拉取失败
 - ✅ 预置 `/etc/config/fstab`，修复部分环境下 `block-mount` 报错
 - ✅ 关闭自动挂载扫描，避免虚拟磁盘被误识别或错误挂载
@@ -65,6 +66,7 @@
 ## 构建优化（v2.0）
 
 - ✅ GitHub Actions 缓存加速（DL + Build），二次构建速度提升 60-70%
+- ✅ 固定 GitHub Actions 版本，避免上游 main/master 变化导致构建漂移
 - ✅ 构建失败自动重试机制
 - ✅ 版本信息注入，便于追踪固件来源
 
@@ -73,5 +75,6 @@
 - [ImmortalWrt](https://github.com/immortalwrt/immortalwrt)
 - [P3TERX/Actions-OpenWrt](https://github.com/P3TERX/Actions-OpenWrt)
 - [gdy666/luci-app-lucky](https://github.com/gdy666/luci-app-lucky)
+- [vernesong/OpenClash](https://github.com/vernesong/OpenClash)
 - [sirpdboy/luci-app-watchdog](https://github.com/sirpdboy/luci-app-watchdog)
 - [sbwml/packages_lang_golang](https://github.com/sbwml/packages_lang_golang)
