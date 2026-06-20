@@ -20,6 +20,6 @@
 #echo 'src-git passwall https://github.com/xiaorouji/openwrt-passwall' >>feeds.conf.default
 # Add luci-app-watchdog for LuCI login failure auto-ban
 if [ ! -d package/watchdog ]; then
-    git clone https://github.com/sirpdboy/luci-app-watchdog.git package/watchdog
+    git clone --depth 1 https://github.com/sirpdboy/luci-app-watchdog.git package/watchdog
 fi
 
