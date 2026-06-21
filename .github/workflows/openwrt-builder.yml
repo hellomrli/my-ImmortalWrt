@@ -46,7 +46,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        branch: ${{ github.event_name == 'repository_dispatch' && fromJSON('["master"]') || fromJSON(inputs.branches == 'all' && '["master", "openwrt-25.12"]' || inputs.branches) }}
+        branch: ${{ github.event_name == 'repository_dispatch' && fromJSON(github.event.client_payload.branches || '["master", "openwrt-25.12"]') || fromJSON(inputs.branches == 'all' && '["master", "openwrt-25.12"]' || inputs.branches) }}
 
     steps:
     - name: Checkout

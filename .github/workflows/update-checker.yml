@@ -18,7 +18,7 @@ permissions:
 
 env:
   REPO_URL: https://github.com/immortalwrt/immortalwrt
-  REPO_BRANCH: master
+  REPO_BRANCHES: master openwrt-25.12
 
 on:
   workflow_dispatch:
@@ -34,9 +34,13 @@ jobs:
     - name: Get Commit Hash
       id: getHash
       run: |
-        commit_hash="$(git ls-remote "$REPO_URL" "refs/heads/$REPO_BRANCH" | awk '{print $1}')"
-        [ -n "$commit_hash" ] || { echo "Failed to resolve $REPO_URL branch $REPO_BRANCH"; exit 1; }
-        echo "commitHash=$commit_hash" >> $GITHUB_OUTPUT
+        : > .commitHash
+        for branch in $REPO_BRANCHES; do
+          commit_hash="$(git ls-remote "$REPO_URL" "refs/heads/$branch" | awk '{print $1}')"
+          [ -n "$commit_hash" ] || { echo "Failed to resolve $REPO_URL branch $branch"; exit 1; }
+          echo "$branch=$commit_hash" >> .commitHash
+        done
+        echo "commitHash=$(sha256sum .commitHash | awk '{print $1}')" >> $GITHUB_OUTPUT
 
     - name: Compare Commit Hash
       id: cacheHash
@@ -48,7 +52,7 @@ jobs:
     - name: Save New Commit Hash
       if: steps.cacheHash.outputs.cache-hit != 'true'
       run: |
-        echo ${{ steps.getHash.outputs.commitHash }} | tee .commitHash
+        cat .commitHash
 
     - name: Trigger build
       if: steps.cacheHash.outputs.cache-hit != 'true'
@@ -56,6 +60,7 @@ jobs:
       with:
         token: ${{ github.token }}
         event-type: Source Code Update
+        client-payload: '{"branches": "[\"master\", \"openwrt-25.12\"]"}'
 
     - name: Delete workflow runs
       if: always()
