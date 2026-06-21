@@ -227,9 +227,9 @@ jobs:
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        gh run list --workflow="${{ github.workflow }}" --limit 100 --json databaseId,status --jq '.[] | select(.status != "in_progress") | .databaseId' > old-runs.txt
+        gh run list --repo="${{ github.repository }}" --workflow="${{ github.workflow }}" --limit 100 --json databaseId,status --jq '.[] | select(.status != "in_progress") | .databaseId' > old-runs.txt
         tail -n +3 old-runs.txt | while read -r run_id; do
-          [ -n "$run_id" ] && gh run delete "$run_id" || true
+          [ -n "$run_id" ] && gh run delete --repo="${{ github.repository }}" "$run_id" || true
         done
 
     - name: Remove old releases
@@ -237,7 +237,7 @@ jobs:
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        gh release list --limit 100 --json tagName --jq '.[3:][].tagName' > old-releases.txt
+        gh release list --repo="${{ github.repository }}" --limit 100 --json tagName --jq '.[3:][].tagName' > old-releases.txt
         while read -r tag; do
-          [ -n "$tag" ] && gh release delete "$tag" --yes --cleanup-tag || true
+          [ -n "$tag" ] && gh release delete --repo="${{ github.repository }}" "$tag" --yes --cleanup-tag || true
         done < old-releases.txt

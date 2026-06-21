@@ -34,8 +34,9 @@ jobs:
     - name: Get Commit Hash
       id: getHash
       run: |
-        git clone --depth 1 $REPO_URL -b $REPO_BRANCH .
-        echo "commitHash=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+        commit_hash="$(git ls-remote "$REPO_URL" "refs/heads/$REPO_BRANCH" | awk '{print $1}')"
+        [ -n "$commit_hash" ] || { echo "Failed to resolve $REPO_URL branch $REPO_BRANCH"; exit 1; }
+        echo "commitHash=$commit_hash" >> $GITHUB_OUTPUT
 
     - name: Compare Commit Hash
       id: cacheHash
@@ -61,7 +62,7 @@ jobs:
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        gh run list --workflow="${{ github.workflow }}" --limit 100 --json databaseId,status --jq '.[] | select(.status != "in_progress") | .databaseId' > old-runs.txt
+        gh run list --repo="${{ github.repository }}" --workflow="${{ github.workflow }}" --limit 100 --json databaseId,status --jq '.[] | select(.status != "in_progress") | .databaseId' > old-runs.txt
         tail -n +3 old-runs.txt | while read -r run_id; do
-          [ -n "$run_id" ] && gh run delete "$run_id" || true
+          [ -n "$run_id" ] && gh run delete --repo="${{ github.repository }}" "$run_id" || true
         done
