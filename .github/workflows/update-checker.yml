@@ -16,10 +16,6 @@ permissions:
   actions: write
   contents: write
 
-env:
-  REPO_URL: https://github.com/immortalwrt/immortalwrt
-  REPO_BRANCHES: master openwrt-25.12
-
 on:
   workflow_dispatch:
   schedule:
@@ -28,42 +24,57 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - source: immortalwrt
+            repo_url: https://github.com/immortalwrt/immortalwrt
+            branch: master
+          - source: immortalwrt
+            repo_url: https://github.com/immortalwrt/immortalwrt
+            branch: openwrt-25.12
+          - source: openwrt
+            repo_url: https://github.com/openwrt/openwrt
+            branch: main
 
     steps:
 
     - name: Get Commit Hash
       id: getHash
       run: |
-        : > .commitHash
-        for branch in $REPO_BRANCHES; do
-          commit_hash="$(git ls-remote "$REPO_URL" "refs/heads/$branch" | awk '{print $1}')"
-          [ -n "$commit_hash" ] || { echo "Failed to resolve $REPO_URL branch $branch"; exit 1; }
-          echo "$branch=$commit_hash" >> .commitHash
-        done
-        echo "commitHash=$(sha256sum .commitHash | awk '{print $1}')" >> $GITHUB_OUTPUT
+        mkdir -p .commitHash
+        commit_hash="$(git ls-remote "${{ matrix.repo_url }}" "refs/heads/${{ matrix.branch }}" | awk '{print $1}')"
+        [ -n "$commit_hash" ] || { echo "Failed to resolve ${{ matrix.repo_url }} branch ${{ matrix.branch }}"; exit 1; }
+        echo "${{ matrix.source }}/${{ matrix.branch }}=$commit_hash" > ".commitHash/${{ matrix.source }}-${{ matrix.branch }}"
+        echo "commitHash=$commit_hash" >> $GITHUB_OUTPUT
 
     - name: Compare Commit Hash
       id: cacheHash
       uses: actions/cache@v4
       with:
-        path: .commitHash
-        key: commitHash_${{ steps.getHash.outputs.commitHash }}
+        path: .commitHash/${{ matrix.source }}-${{ matrix.branch }}
+        key: commitHash_${{ matrix.source }}_${{ matrix.branch }}_${{ steps.getHash.outputs.commitHash }}
 
     - name: Save New Commit Hash
       if: steps.cacheHash.outputs.cache-hit != 'true'
       run: |
-        cat .commitHash
+        cat ".commitHash/${{ matrix.source }}-${{ matrix.branch }}"
 
     - name: Trigger build
       if: steps.cacheHash.outputs.cache-hit != 'true'
       uses: peter-evans/repository-dispatch@v3
       with:
         token: ${{ github.token }}
-        event-type: Source Code Update
-        client-payload: '{"branches": "[\"master\", \"openwrt-25.12\"]"}'
+        event-type: openwrt-builder
+        client-payload: '{"sources": "${{ matrix.source }}", "branches": "${{ matrix.branch }}"}'
 
+  cleanup-runs:
+    needs: check
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
     - name: Delete workflow runs
-      if: always()
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |

@@ -1,7 +1,6 @@
 # ImmortalWrt & Official OpenWrt x86_64 云编译
 
-[![Build OpenWrt V2](https://github.com/hellomrli/my-ImmortalWrt/actions/workflows/openwrt-builder-v2.yml/badge.svg)](https://github.com/hellomrli/my-ImmortalWrt/actions/workflows/openwrt-builder-v2.yml)
-[![Build OpenWrt (Legacy)](https://github.com/hellomrli/my-ImmortalWrt/actions/workflows/openwrt-builder.yml/badge.svg)](https://github.com/hellomrli/my-ImmortalWrt/actions/workflows/openwrt-builder.yml)
+[![Build OpenWrt](https://github.com/hellomrli/my-ImmortalWrt/actions/workflows/openwrt-builder.yml/badge.svg)](https://github.com/hellomrli/my-ImmortalWrt/actions/workflows/openwrt-builder.yml)
 [![Release](https://img.shields.io/github/v/release/hellomrli/my-ImmortalWrt)](https://github.com/hellomrli/my-ImmortalWrt/releases)
 [![License](https://img.shields.io/github/license/hellomrli/my-ImmortalWrt)](LICENSE)
 [![Downloads](https://img.shields.io/github/downloads/hellomrli/my-ImmortalWrt/total)](https://github.com/hellomrli/my-ImmortalWrt/releases)
@@ -54,11 +53,10 @@
 - ✅ 面向 x86_64 软路由构建，支持 ext4、squashfs、rootfs.tar.gz 和 EFI 启动镜像
 - ✅ 完整的网卡驱动：Intel I226-V (igc)、8139、e1000/e1000e、igb、ixgbe、r8125/r8168、tg3、vmxnet3 等
 - ✅ USB 网卡支持：Asix、RTL8152、RTL8150 等
-- ✅ Intel i915 显卡支持（PVE 虚拟机）
 
 ### 📁 文件系统
-- ✅ 完整文件系统支持：exFAT、NTFS3、F2FS、ext4、VFAT
-- ✅ USB 存储支持（UAS + 额外驱动）
+- ✅ 面向虚拟机磁盘精简保留 ext4、VFAT 和 squashfs
+- ✅ 关闭额外 USB 存储和桌面显卡驱动，减少软路由固件体积
 
 ### ⚡ 性能优化
 - ✅ 预置 `/etc/config/fstab`，修复部分环境下 `block-mount` 报错
@@ -68,10 +66,10 @@
 - ✅ 补齐 x86_64 常用 AES/SHA crypto 模块：硬件加速
 - ✅ OpenSSL 启用速度优化、ASM 和 SSE2
 - ✅ 集成 SQM / CAKE / IFB / BBR 相关组件
+- ✅ 保留 PPPoE 用户态和内核模块，支持常见拨号接入
 
 ### 🖥️ 虚拟化
 - ✅ 集成 `qemu-ga`，适配 PVE / QEMU Guest Agent
-- ✅ Intel i915 显卡驱动（PVE 虚拟机）
 
 ### 🛠️ 实用工具
 - ✅ 网络工具：`ethtool`、`iperf3`、`curl`、`wget-ssl`
@@ -99,17 +97,21 @@
 - ✅ 固定 GitHub Actions 版本，避免上游 main/master 变化导致构建漂移
 - ✅ 构建失败自动重试机制
 - ✅ 版本信息注入，便于追踪固件来源
-- ✅ 多源多分支矩阵构建（V2 workflow）
+- ✅ 多源多分支矩阵构建
 
 ## 如何使用
 
 ### 手动触发构建
 
 1. 进入 [Actions](https://github.com/hellomrli/my-ImmortalWrt/actions) 页面
-2. 选择 `OpenWrt Builder V2` workflow
+2. 选择 `OpenWrt Builder` workflow
 3. 点击 `Run workflow`
 4. 选择要构建的源和分支（默认 `all` 会构建所有组合）
 5. 等待构建完成，从 [Releases](https://github.com/hellomrli/my-ImmortalWrt/releases) 下载
+
+可选值：
+- `sources`: `immortalwrt`、`openwrt` 或 `all`
+- `branches`: `master`、`openwrt-25.12`、`main` 或 `all`
 
 ### 下载已构建的固件
 
@@ -124,8 +126,7 @@ Release tag 格式：
 ```
 .
 ├── .github/workflows/
-│   ├── openwrt-builder.yml        # Legacy workflow (ImmortalWrt only)
-│   ├── openwrt-builder-v2.yml     # V2 workflow (Multi-source support)
+│   ├── openwrt-builder.yml        # 多源多分支构建
 │   └── update-checker.yml         # 更新检查
 ├── configs/
 │   ├── immortalwrt.config         # ImmortalWrt 配置文件
@@ -135,7 +136,6 @@ Release tag 格式：
 │   └── openwrt-official-part2.sh  # Official OpenWrt DIY 脚本 part 2
 ├── diy-part1.sh                   # ImmortalWrt DIY 脚本 part 1
 ├── diy-part2.sh                   # ImmortalWrt DIY 脚本 part 2
-├── .config                        # ImmortalWrt 主配置（legacy）
 └── README.md
 ```
 

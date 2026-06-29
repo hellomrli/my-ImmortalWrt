@@ -2,7 +2,7 @@
 # https://github.com/P3TERX/Actions-OpenWrt
 #
 # File: .github/workflows/openwrt-builder.yml
-# Description: Build OpenWrt using GitHub Actions (Multi-branch)
+# Description: Build OpenWrt using GitHub Actions (Multi-source & Multi-branch)
 #
 # Copyright (c) 2019-2024 P3TERX <https://p3terx.com>
 #
@@ -14,10 +14,16 @@ name: OpenWrt Builder
 
 on:
   repository_dispatch:
+    types: [openwrt-builder]
   workflow_dispatch:
     inputs:
+      sources:
+        description: 'Sources to build (comma separated, JSON array, or "all")'
+        required: false
+        default: 'all'
+        type: string
       branches:
-        description: 'Branches to build (comma separated JSON array, or "all")'
+        description: 'Branches to build (comma separated, JSON array, or "all")'
         required: false
         default: 'all'
         type: string
@@ -27,26 +33,102 @@ permissions:
   contents: write
 
 env:
-  REPO_URL: https://github.com/immortalwrt/immortalwrt
-  FEEDS_CONF: feeds.conf.default
-  CONFIG_FILE: .config
-  DIY_P1_SH: diy-part1.sh
-  DIY_P2_SH: diy-part2.sh
   UPLOAD_BIN_DIR: false
   UPLOAD_FIRMWARE: true
   UPLOAD_RELEASE: true
   TZ: Asia/Shanghai
 
 jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+      targets: ${{ steps.matrix.outputs.targets }}
+    steps:
+    - name: Generate build matrix
+      id: matrix
+      shell: bash
+      env:
+        REQUESTED_SOURCES: ${{ github.event.client_payload.sources || github.event.inputs.sources || 'all' }}
+        REQUESTED_BRANCHES: ${{ github.event.client_payload.branches || github.event.inputs.branches || 'all' }}
+      run: |
+        python3 - <<'PY'
+        import json
+        import os
+        import sys
+
+        targets = [
+            {
+                "source": "immortalwrt",
+                "branch": "master",
+                "repo_url": "https://github.com/immortalwrt/immortalwrt",
+                "config_file": "configs/immortalwrt.config",
+                "diy_p1_sh": "diy-part1.sh",
+                "diy_p2_sh": "diy-part2.sh",
+            },
+            {
+                "source": "immortalwrt",
+                "branch": "openwrt-25.12",
+                "repo_url": "https://github.com/immortalwrt/immortalwrt",
+                "config_file": "configs/immortalwrt.config",
+                "diy_p1_sh": "diy-part1.sh",
+                "diy_p2_sh": "diy-part2.sh",
+            },
+            {
+                "source": "openwrt",
+                "branch": "main",
+                "repo_url": "https://github.com/openwrt/openwrt",
+                "config_file": "configs/openwrt-official.config",
+                "diy_p1_sh": "scripts/openwrt-official-part1.sh",
+                "diy_p2_sh": "scripts/openwrt-official-part2.sh",
+            },
+        ]
+
+        def parse_selection(value):
+            value = (value or "all").strip()
+            if not value or value == "all":
+                return None
+            try:
+                parsed = json.loads(value)
+                if isinstance(parsed, str):
+                    return {parsed}
+                return {str(item).strip() for item in parsed if str(item).strip()}
+            except json.JSONDecodeError:
+                return {item.strip().strip('"').strip("'") for item in value.split(",") if item.strip()}
+
+        sources = parse_selection(os.environ.get("REQUESTED_SOURCES"))
+        branches = parse_selection(os.environ.get("REQUESTED_BRANCHES"))
+
+        selected = [
+            target for target in targets
+            if (sources is None or target["source"] in sources)
+            and (branches is None or target["branch"] in branches)
+        ]
+
+        if not selected:
+            valid = ", ".join(f'{target["source"]}/{target["branch"]}' for target in targets)
+            print(f"::error::No build target matched. Valid targets: {valid}")
+            sys.exit(1)
+
+        matrix = json.dumps({"include": selected}, separators=(",", ":"))
+        names = ", ".join(f'{target["source"]}/{target["branch"]}' for target in selected)
+
+        with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+            output.write(f"matrix={matrix}\n")
+            output.write(f"targets={names}\n")
+
+        print(f"Selected targets: {names}")
+        PY
+
   build:
+    needs: prepare
     runs-on: ubuntu-24.04
     concurrency:
-      group: ${{ github.workflow }}-${{ github.ref }}-${{ matrix.branch }}
+      group: ${{ github.workflow }}-${{ github.ref }}-${{ matrix.source }}-${{ matrix.branch }}
       cancel-in-progress: false
     strategy:
       fail-fast: false
-      matrix:
-        branch: ${{ github.event_name == 'repository_dispatch' && fromJSON(github.event.client_payload.branches || '["master", "openwrt-25.12"]') || fromJSON(inputs.branches == 'all' && '["master", "openwrt-25.12"]' || inputs.branches) }}
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
 
     steps:
     - name: Checkout
@@ -69,31 +151,32 @@ jobs:
     - name: Clone source code
       run: |
         df -hT "$PWD"
-        git clone --depth 1 ${{ env.REPO_URL }} -b ${{ matrix.branch }} openwrt
+        git clone --depth 1 ${{ matrix.repo_url }} -b ${{ matrix.branch }} openwrt
 
     - name: Cache OpenWrt DL
       uses: actions/cache@v4
       with:
         path: openwrt/dl
-        key: ${{ runner.os }}-dl-${{ matrix.branch }}-${{ hashFiles('.config', 'diy-part1.sh', 'diy-part2.sh') }}
+        key: ${{ runner.os }}-dl-${{ matrix.source }}-${{ matrix.branch }}-${{ hashFiles(matrix.config_file, matrix.diy_p1_sh, matrix.diy_p2_sh) }}
         restore-keys: |
-          ${{ runner.os }}-dl-${{ matrix.branch }}-
+          ${{ runner.os }}-dl-${{ matrix.source }}-${{ matrix.branch }}-
+          ${{ runner.os }}-dl-${{ matrix.source }}-
           ${{ runner.os }}-dl-
 
     - name: Cache OpenWrt Build
       uses: actions/cache@v4
       with:
         path: openwrt/.ccache
-        key: ${{ runner.os }}-build-${{ matrix.branch }}-${{ hashFiles('.config', 'diy-part1.sh', 'diy-part2.sh') }}
+        key: ${{ runner.os }}-build-${{ matrix.source }}-${{ matrix.branch }}-${{ hashFiles(matrix.config_file, matrix.diy_p1_sh, matrix.diy_p2_sh) }}
         restore-keys: |
-          ${{ runner.os }}-build-${{ matrix.branch }}-
+          ${{ runner.os }}-build-${{ matrix.source }}-${{ matrix.branch }}-
 
     - name: Load custom feeds
       run: |
-        [ -e $FEEDS_CONF ] && mv $FEEDS_CONF openwrt/feeds.conf.default
-        chmod +x $DIY_P1_SH
+        [ -e feeds.conf.default ] && mv feeds.conf.default openwrt/feeds.conf.default
+        chmod +x ${{ matrix.diy_p1_sh }}
         cd openwrt
-        $GITHUB_WORKSPACE/$DIY_P1_SH
+        $GITHUB_WORKSPACE/${{ matrix.diy_p1_sh }}
 
     - name: Update feeds
       run: cd openwrt && ./scripts/feeds update -a
@@ -104,10 +187,10 @@ jobs:
     - name: Load custom configuration
       run: |
         [ -e files ] && mv files openwrt/files
-        [ -e $CONFIG_FILE ] && mv $CONFIG_FILE openwrt/.config
-        chmod +x $DIY_P2_SH
+        [ -e ${{ matrix.config_file }} ] && mv ${{ matrix.config_file }} openwrt/.config
+        chmod +x ${{ matrix.diy_p2_sh }}
         cd openwrt
-        $GITHUB_WORKSPACE/$DIY_P2_SH
+        $GITHUB_WORKSPACE/${{ matrix.diy_p2_sh }}
 
     - name: Download package
       id: package
@@ -126,23 +209,21 @@ jobs:
         echo -e "$(nproc) thread compile"
         echo "===================="
         echo "Build started at: $(date '+%Y-%m-%d %H:%M:%S')"
+        echo "Source: ${{ matrix.source }}"
         echo "Branch: ${{ matrix.branch }}"
         echo "===================="
-        
-        # 第一次尝试：多线程编译
+
         if make -j$(nproc); then
           echo "✅ Multi-thread build successful"
-        # 第二次尝试：单线程详细日志
         elif make -j1 V=s; then
           echo "⚠️ Single-thread build successful (multi-thread failed)"
-        # 第三次尝试：清理后重试
         elif make clean && make -j1 V=s; then
           echo "⚠️ Build successful after clean (previous attempts failed)"
         else
           echo "❌ All build attempts failed"
           exit 1
         fi
-        
+
         echo "===================="
         echo "Build completed at: $(date '+%Y-%m-%d %H:%M:%S')"
         echo "===================="
@@ -150,7 +231,8 @@ jobs:
         grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME
         [ -s DEVICE_NAME ] && echo "DEVICE_NAME=_$(cat DEVICE_NAME)" >> $GITHUB_ENV
         echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
-        echo "BRANCH_NAME=_${{ matrix.branch }}" >> $GITHUB_ENV
+        echo "SOURCE_NAME=${{ matrix.source }}" >> $GITHUB_ENV
+        echo "BRANCH_NAME=${{ matrix.branch }}" >> $GITHUB_ENV
 
     - name: Check space
       if: (!cancelled())
@@ -160,7 +242,7 @@ jobs:
       uses: actions/upload-artifact@v4
       if: steps.compile.outputs.status == 'success' && env.UPLOAD_BIN_DIR == 'true'
       with:
-        name: OpenWrt_bin${{ env.DEVICE_NAME }}${{ env.BRANCH_NAME }}${{ env.FILE_DATE }}
+        name: OpenWrt_bin_${{ env.SOURCE_NAME }}_${{ env.BRANCH_NAME }}${{ env.FILE_DATE }}
         path: openwrt/bin
 
     - name: Organize files
@@ -181,35 +263,54 @@ jobs:
       uses: actions/upload-artifact@v4
       if: steps.organize.outputs.status == 'success' && !cancelled()
       with:
-        name: OpenWrt_firmware${{ env.DEVICE_NAME }}${{ env.BRANCH_NAME }}${{ env.FILE_DATE }}
+        name: OpenWrt_firmware_${{ env.SOURCE_NAME }}_${{ env.BRANCH_NAME }}${{ env.FILE_DATE }}
         path: ${{ env.FIRMWARE }}
 
     - name: Generate release tag
       id: tag
       if: steps.organize.outputs.status == 'success' && env.UPLOAD_RELEASE == 'true' && !cancelled()
       run: |
-        echo "release_tag=${{ matrix.branch }}-$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
+        echo "release_tag=${{ matrix.source }}-${{ matrix.branch }}-$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
         touch release.txt
-        echo "📦 **ImmortalWrt x86_64 固件**" >> release.txt
-        echo "" >> release.txt
-        echo "🔹 **分支**: \`${{ matrix.branch }}\`" >> release.txt
-        echo "🔹 **OpenClash**: \`vernesong/OpenClash\`" >> release.txt
-        echo "🔹 **构建日期**: $(date '+%Y-%m-%d %H:%M:%S')" >> release.txt
-        echo "🔹 **内核版本**: Linux 6.18" >> release.txt
-        echo "" >> release.txt
-        echo "### 默认配置" >> release.txt
-        echo "- IP: 192.168.50.1" >> release.txt
-        echo "- 用户名: root" >> release.txt
-        echo "- 密码: 无（首次登录需设置）" >> release.txt
-        echo "" >> release.txt
-        echo "### 已集成插件" >> release.txt
-        echo "- OpenClash" >> release.txt
-        echo "- Lucky" >> release.txt
-        echo "- Watchdog" >> release.txt
-        echo "- SQM" >> release.txt
+
+        if [ "${{ matrix.source }}" = "immortalwrt" ]; then
+          echo "📦 **ImmortalWrt x86_64 固件**" >> release.txt
+          echo "" >> release.txt
+          echo "🔹 **上游**: ImmortalWrt" >> release.txt
+          echo "🔹 **分支**: \`${{ matrix.branch }}\`" >> release.txt
+          echo "🔹 **OpenClash**: \`vernesong/OpenClash\`" >> release.txt
+          echo "🔹 **构建日期**: $(date '+%Y-%m-%d %H:%M:%S')" >> release.txt
+          echo "" >> release.txt
+          echo "### 默认配置" >> release.txt
+          echo "- IP: 192.168.50.1" >> release.txt
+          echo "- 用户名: root" >> release.txt
+          echo "- 密码: 无（首次登录需设置）" >> release.txt
+          echo "" >> release.txt
+          echo "### 已集成插件" >> release.txt
+          echo "- OpenClash" >> release.txt
+          echo "- Lucky" >> release.txt
+          echo "- Watchdog" >> release.txt
+          echo "- SQM" >> release.txt
+        else
+          echo "📦 **Official OpenWrt x86_64 固件**" >> release.txt
+          echo "" >> release.txt
+          echo "🔹 **上游**: OpenWrt Official" >> release.txt
+          echo "🔹 **分支**: \`${{ matrix.branch }}\`" >> release.txt
+          echo "🔹 **构建日期**: $(date '+%Y-%m-%d %H:%M:%S')" >> release.txt
+          echo "" >> release.txt
+          echo "### 默认配置" >> release.txt
+          echo "- IP: 192.168.50.1" >> release.txt
+          echo "- 用户名: root" >> release.txt
+          echo "- 密码: 无（首次登录需设置）" >> release.txt
+          echo "" >> release.txt
+          echo "### 特性" >> release.txt
+          echo "- 官方 OpenWrt 纯净版本" >> release.txt
+          echo "- 针对 x86_64 优化" >> release.txt
+          echo "- 支持 PVE / QEMU 虚拟化" >> release.txt
+        fi
+
         echo "" >> release.txt
         echo "📖 [完整文档](https://github.com/hellomrli/my-ImmortalWrt/blob/main/README.md)" >> release.txt
-        # GoFile upload not enabled
         echo "status=success" >> $GITHUB_OUTPUT
 
     - name: Upload to release
@@ -222,8 +323,24 @@ jobs:
         body_path: release.txt
         files: ${{ env.FIRMWARE }}/*
 
+    - name: Remove old releases
+      if: env.UPLOAD_RELEASE == 'true' && !cancelled()
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        gh release list --repo="${{ github.repository }}" --limit 100 --json tagName --jq '.[].tagName' \
+          | grep "^${{ matrix.source }}-${{ matrix.branch }}-" \
+          | tail -n +6 > old-releases.txt || true
+        while read -r tag; do
+          [ -n "$tag" ] && gh release delete --repo="${{ github.repository }}" "$tag" --yes --cleanup-tag || true
+        done < old-releases.txt
+
+  cleanup-runs:
+    needs: build
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
     - name: Delete workflow runs
-      if: always()
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
@@ -231,13 +348,3 @@ jobs:
         tail -n +3 old-runs.txt | while read -r run_id; do
           [ -n "$run_id" ] && gh run delete --repo="${{ github.repository }}" "$run_id" || true
         done
-
-    - name: Remove old releases
-      if: env.UPLOAD_RELEASE == 'true' && !cancelled()
-      env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: |
-        gh release list --repo="${{ github.repository }}" --limit 100 --json tagName --jq '.[3:][].tagName' > old-releases.txt
-        while read -r tag; do
-          [ -n "$tag" ] && gh release delete --repo="${{ github.repository }}" "$tag" --yes --cleanup-tag || true
-        done < old-releases.txt
