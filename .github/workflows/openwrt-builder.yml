@@ -179,7 +179,34 @@ jobs:
         $GITHUB_WORKSPACE/${{ matrix.diy_p1_sh }}
 
     - name: Update feeds
-      run: cd openwrt && ./scripts/feeds update -a
+      run: |
+        cd openwrt
+
+        show_feed_dumps() {
+          if find logs/feeds -name dump.txt -print -quit 2>/dev/null | grep -q .; then
+            echo "Feed metadata dump logs:"
+            find logs/feeds -name dump.txt -print | sort | while read -r dump; do
+              echo "===== $dump ====="
+              sed -n '1,160p' "$dump"
+            done
+          fi
+        }
+
+        if ./scripts/feeds update -a; then
+          exit 0
+        fi
+
+        echo "Feed update failed; retrying after cleanup..."
+        show_feed_dumps
+        rm -rf feeds tmp/info logs/feeds
+        sleep 10
+
+        if ./scripts/feeds update -a; then
+          exit 0
+        fi
+
+        show_feed_dumps
+        exit 1
 
     - name: Install feeds
       run: cd openwrt && ./scripts/feeds install -a
