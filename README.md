@@ -22,9 +22,9 @@
 <!-- BUILD_TABLE_START -->
 | 构建目标 | 构建状态 | 最新版本 | 发布时间 | Release | 推荐下载 |
 |----------|----------|----------|----------|---------|----------|
-| ImmortalWrt `master` | 构建中 | `immortalwrt-master-2026.07.04-1803` | 2026-07-04 18:03 CST | [下载](https://github.com/hellomrli/my-ImmortalWrt/releases/tag/immortalwrt-master-2026.07.04-1803) | `squashfs-combined-efi.img.gz` |
-| ImmortalWrt `openwrt-25.12` | 已发布 | `immortalwrt-openwrt-25.12-2026.07.02-1850` | 2026-07-02 18:50 CST | [下载](https://github.com/hellomrli/my-ImmortalWrt/releases/tag/immortalwrt-openwrt-25.12-2026.07.02-1850) | `squashfs-combined-efi.img.gz` |
-| OpenWrt Official `main` | 已发布 | `openwrt-main-2026.07.04-1803` | 2026-07-04 18:03 CST | [下载](https://github.com/hellomrli/my-ImmortalWrt/releases/tag/openwrt-main-2026.07.04-1803) | `squashfs-combined-efi.img.gz` |
+| ImmortalWrt `master` | 构建中 | `immortalwrt-master-2026.07.05-1405` | 2026-07-05 14:05 CST | [下载](https://github.com/hellomrli/my-ImmortalWrt/releases/tag/immortalwrt-master-2026.07.05-1405) | `squashfs-combined-efi.img.gz` |
+| ImmortalWrt `openwrt-25.12` | 构建中 | `immortalwrt-openwrt-25.12-2026.07.02-1850` | 2026-07-02 18:50 CST | [下载](https://github.com/hellomrli/my-ImmortalWrt/releases/tag/immortalwrt-openwrt-25.12-2026.07.02-1850) | `squashfs-combined-efi.img.gz` |
+| OpenWrt Official `main` | 构建中 | `openwrt-main-2026.07.04-1803` | 2026-07-04 18:03 CST | [下载](https://github.com/hellomrli/my-ImmortalWrt/releases/tag/openwrt-main-2026.07.04-1803) | `squashfs-combined-efi.img.gz` |
 
 > 此表由 GitHub Actions 自动更新；新 Release 发布后会同步最新版本和链接。
 <!-- BUILD_TABLE_END -->
