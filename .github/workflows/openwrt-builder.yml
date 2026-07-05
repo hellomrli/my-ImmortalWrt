@@ -278,12 +278,19 @@ jobs:
       run: |
         cd openwrt/bin/targets/*/*
         rm -f ./*ext4*.img ./*ext4*.img.gz
+        if ! find . -maxdepth 1 -type f -name '*squashfs-combined*.img.gz' -print -quit | grep -q .; then
+          echo "No squashfs combined image was generated; refusing to publish incomplete firmware. Directory contents:"
+          find . -maxdepth 1 -type f -printf '%f\n' | sort
+          exit 1
+        fi
         if ! find . -maxdepth 1 -type f \( -name '*.img.gz' -o -name '*kernel.bin' -o -name '*rootfs.tar.gz' \) -print -quit | grep -q .; then
           echo "No firmware images were generated; treating build as failed. Directory contents:"
           find . -maxdepth 1 -type f -printf '%f\n' | sort
           exit 1
         fi
         rm -rf packages
+        echo "Published firmware files:"
+        find . -maxdepth 1 -type f -printf '%f\n' | sort
         echo "FIRMWARE=$PWD" >> $GITHUB_ENV
         echo "status=success" >> $GITHUB_OUTPUT
 
@@ -339,6 +346,12 @@ jobs:
 
         echo "" >> release.txt
         echo "📖 [完整文档](https://github.com/hellomrli/my-ImmortalWrt/blob/main/README.md)" >> release.txt
+        echo "" >> release.txt
+        echo "### 下载建议" >> release.txt
+        echo "- PVE / x86_64 软路由优先使用 \`squashfs-combined-efi.img.gz\`" >> release.txt
+        echo "- Legacy BIOS 环境使用 \`squashfs-combined.img.gz\`" >> release.txt
+        echo "- 升级前先备份配置：\`sysupgrade -b /tmp/backup-before-upgrade.tar.gz\`" >> release.txt
+        echo "- 本仓库不再发布 ext4 combined 镜像" >> release.txt
         echo "status=success" >> $GITHUB_OUTPUT
 
     - name: Upload to release

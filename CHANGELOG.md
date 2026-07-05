@@ -7,6 +7,7 @@
 ### Changed
 - 🔄 关闭 ext4 rootfs 镜像生成，Release 仅保留 squashfs 镜像和 rootfs.tar.gz。
 - 🔄 预置 fstab 只保留 `/boot` 挂载，不再把只读 squashfs 根分区挂载为 `/`。
+- 🔄 Release 发布前强制校验 `squashfs-combined` 镜像存在，并在说明中提示备份和下载建议。
 
 ### Fixed
 - 🛠️ 恢复 F2FS overlay 所需的 `kmod-fs-f2fs`、`mkf2fs` 和 `f2fsck`，修复 squashfs 镜像无法持久保存配置的问题。
@@ -47,7 +48,7 @@
 - 🔄 Update Checker 按源和分支独立检测，只触发变更目标
 - 🔄 Official OpenWrt 显式选择网卡驱动包，避免只依赖 DEFAULT 配置
 - 🔄 保留 PPPoE 用户态包，修复 PPP 内核模块与用户态包配置不一致
-- 🔄 关闭 i915、crash dump、KEXEC、额外 USB 存储和 exFAT/NTFS3/F2FS 支持
+- 🔄 关闭 i915、crash dump、KEXEC、额外 USB 存储和 exFAT/NTFS3 支持
 
 ### 关键发现
 - 🔍 **OpenWrt main 分支已经使用 APK + 6.18 内核**（与 ImmortalWrt 同步）

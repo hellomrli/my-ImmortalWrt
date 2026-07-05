@@ -59,7 +59,7 @@
 - ✅ 关闭额外 USB 存储和桌面显卡驱动，减少软路由固件体积
 
 ### ⚡ 性能优化
-- ✅ 预置 `/etc/config/fstab`，修复部分环境下 `block-mount` 报错
+- ✅ 预置 `/boot` 挂载，避免将只读 squashfs 根分区误作为 extroot
 - ✅ 关闭自动挂载扫描，避免虚拟磁盘被误识别或错误挂载
 - ✅ 使用 MOLD 链接器，加速编译
 - ✅ 启用 `firewall4`、`kmod-nf-flow`、`kmod-nft-offload`、`kmod-nft-fullcone`、`kmod-nft-tproxy`
@@ -120,6 +120,13 @@
 Release tag 格式：
 - ImmortalWrt: `immortalwrt-master-YYYY.MM.DD-HHMM` 或 `immortalwrt-openwrt-25.12-YYYY.MM.DD-HHMM`
 - Official OpenWrt: `openwrt-main-YYYY.MM.DD-HHMM`
+
+### 升级建议
+
+- PVE / UEFI 环境优先下载 `squashfs-combined-efi.img.gz`
+- Legacy BIOS 环境下载 `squashfs-combined.img.gz`
+- 升级前先备份配置：`sysupgrade -b /tmp/backup-before-upgrade.tar.gz`
+- 更新后确认 `/` 使用持久 overlay，不应显示为 `overlayfs:/tmp/root`
 
 ## 项目结构
 
