@@ -277,6 +277,7 @@ jobs:
       if: steps.compile.outputs.status == 'success' && env.UPLOAD_FIRMWARE == 'true' && !cancelled()
       run: |
         cd openwrt/bin/targets/*/*
+        rm -f ./*ext4*.img ./*ext4*.img.gz
         if ! find . -maxdepth 1 -type f \( -name '*.img.gz' -o -name '*kernel.bin' -o -name '*rootfs.tar.gz' \) -print -quit | grep -q .; then
           echo "No firmware images were generated; treating build as failed. Directory contents:"
           find . -maxdepth 1 -type f -printf '%f\n' | sort

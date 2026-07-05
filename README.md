@@ -27,7 +27,7 @@
 | **默认 IP** | 192.168.50.1 |
 | **默认账号** | root |
 | **默认密码** | 无密码（首次登录需设置） |
-| **文件格式** | ext4 + squashfs + rootfs.tar.gz |
+| **文件格式** | squashfs + rootfs.tar.gz |
 | **启动镜像** | GRUB + EFI |
 | **包管理** | APK |
 | **链接器** | MOLD |
@@ -50,12 +50,12 @@
 ## 主要特性（所有版本完全一致）
 
 ### 🔌 硬件支持
-- ✅ 面向 x86_64 软路由构建，支持 ext4、squashfs、rootfs.tar.gz 和 EFI 启动镜像
+- ✅ 面向 x86_64 软路由构建，支持 squashfs、rootfs.tar.gz 和 EFI 启动镜像
 - ✅ 完整的网卡驱动：Intel I226-V (igc)、8139、e1000/e1000e、igb、ixgbe、r8125/r8168、tg3、vmxnet3 等
 - ✅ USB 网卡支持：Asix、RTL8152、RTL8150 等
 
 ### 📁 文件系统
-- ✅ 面向虚拟机磁盘精简保留 ext4、VFAT 和 squashfs
+- ✅ 面向虚拟机磁盘精简保留 VFAT、squashfs 和 F2FS overlay 支持
 - ✅ 关闭额外 USB 存储和桌面显卡驱动，减少软路由固件体积
 
 ### ⚡ 性能优化

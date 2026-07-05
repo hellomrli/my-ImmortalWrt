@@ -24,7 +24,7 @@ git clone --depth 1 https://github.com/vernesong/OpenClash.git package/openclash
 rm -rf feeds/packages/lang/golang 2>/dev/null || true
 git clone --depth 1 https://github.com/sbwml/packages_lang_golang -b 23.x feeds/packages/lang/golang
 
-# 4. 生成自定义 fstab 配置文件 (修复 block-mount 报错)
+# 4. 生成自定义 fstab 配置文件，只保留 /boot 挂载，避免把只读 squashfs 根分区当作 extroot
 mkdir -p package/base-files/files/etc/config
 cat > package/base-files/files/etc/config/fstab << 'FSTAB'
 config global
@@ -38,11 +38,6 @@ config global
 config mount
 	option target '/boot'
 	option device '/dev/sda1'
-	option enabled '1'
-
-config mount
-	option target '/'
-	option device '/dev/sda2'
 	option enabled '1'
 FSTAB
 

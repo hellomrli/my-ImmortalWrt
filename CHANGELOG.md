@@ -2,6 +2,15 @@
 
 所有重要的项目变更都会记录在此文件中。
 
+## [Unreleased]
+
+### Changed
+- 🔄 关闭 ext4 rootfs 镜像生成，Release 仅保留 squashfs 镜像和 rootfs.tar.gz。
+- 🔄 预置 fstab 只保留 `/boot` 挂载，不再把只读 squashfs 根分区挂载为 `/`。
+
+### Fixed
+- 🛠️ 恢复 F2FS overlay 所需的 `kmod-fs-f2fs`、`mkf2fs` 和 `f2fsck`，修复 squashfs 镜像无法持久保存配置的问题。
+
 ## [3.0.0] - 2026-06-29
 
 ### Added
