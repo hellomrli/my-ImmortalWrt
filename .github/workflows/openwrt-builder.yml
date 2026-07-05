@@ -364,6 +364,12 @@ jobs:
         body_path: release.txt
         files: ${{ env.FIRMWARE }}/*
 
+    - name: Refresh README build table
+      if: steps.organize.outputs.status == 'success' && steps.tag.outputs.status == 'success' && !cancelled()
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: gh workflow run update-readme-build-table.yml --repo="${{ github.repository }}" --ref="${{ github.ref_name }}"
+
     - name: Remove old releases
       if: env.UPLOAD_RELEASE == 'true' && !cancelled()
       env:

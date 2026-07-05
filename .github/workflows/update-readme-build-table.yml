@@ -1,0 +1,40 @@
+name: Update README Build Table
+
+on:
+  workflow_dispatch:
+  release:
+    types: [published, edited, deleted]
+  schedule:
+    - cron: 30 */6 * * *
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-24.04
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Update README build table
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+      run: python3 .github/scripts/update-readme-build-table.py
+
+    - name: Commit changes
+      run: |
+        if git diff --quiet README.md; then
+          echo "README build table is already current."
+          exit 0
+        fi
+
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git add README.md
+        git commit -m "docs: update firmware build table"
+        git push
