@@ -17,6 +17,16 @@
 
 > 💡 **所有版本的插件完全一致**！主要区别在于软件源。
 
+## 📦 当前构建概览
+
+| 构建目标 | 当前状态 | 最新版本 | Release 链接 | 推荐下载 |
+|----------|----------|----------|--------------|----------|
+| ImmortalWrt `master` | 修复版构建中，当前可用版本为 2026-07-04 | `immortalwrt-master-2026.07.04-1803` | [下载](https://github.com/hellomrli/my-ImmortalWrt/releases/tag/immortalwrt-master-2026.07.04-1803) | `squashfs-combined-efi.img.gz` |
+| ImmortalWrt `openwrt-25.12` | 可用，等待下次上游更新或手动构建 | `immortalwrt-openwrt-25.12-2026.07.02-1850` | [下载](https://github.com/hellomrli/my-ImmortalWrt/releases/tag/immortalwrt-openwrt-25.12-2026.07.02-1850) | `squashfs-combined-efi.img.gz` |
+| OpenWrt Official `main` | 可用，等待下次上游更新或手动构建 | `openwrt-main-2026.07.04-1803` | [下载](https://github.com/hellomrli/my-ImmortalWrt/releases/tag/openwrt-main-2026.07.04-1803) | `squashfs-combined-efi.img.gz` |
+
+> 当前表格用于快速定位最近可下载版本；新构建完成后以 [Releases](https://github.com/hellomrli/my-ImmortalWrt/releases) 页面为准。
+
 ## 默认参数
 
 | 项目 | 默认值 |
