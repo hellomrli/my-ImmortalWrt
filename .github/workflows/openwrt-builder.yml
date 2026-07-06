@@ -224,6 +224,17 @@ jobs:
       run: |
         cd openwrt
         make defconfig
+        echo "Checking required F2FS overlay bootstrap packages in final .config..."
+        for symbol in \
+          CONFIG_PACKAGE_kmod-fs-f2fs \
+          CONFIG_PACKAGE_mkf2fs \
+          CONFIG_PACKAGE_f2fsck \
+          CONFIG_PACKAGE_f2fs-tools; do
+          if ! grep -qx "${symbol}=y" .config; then
+            echo "::error::${symbol} is not enabled after make defconfig; squashfs images may lose configuration after reboot."
+            exit 1
+          fi
+        done
         make download -j8
         find dl -size -1024c -exec ls -l {} \;
         find dl -size -1024c -exec rm -f {} \;
@@ -288,6 +299,18 @@ jobs:
           find . -maxdepth 1 -type f -printf '%f\n' | sort
           exit 1
         fi
+        manifest="$(find . -maxdepth 1 -type f -name '*.manifest' -print -quit)"
+        if [ -z "$manifest" ]; then
+          echo "::error::No firmware package manifest found; cannot verify F2FS overlay bootstrap packages."
+          exit 1
+        fi
+        echo "Checking required F2FS overlay bootstrap packages in $manifest..."
+        for pkg in kmod-fs-f2fs mkf2fs f2fsck; do
+          if ! grep -Eq "^${pkg}[[:space:]]" "$manifest"; then
+            echo "::error::${pkg} is missing from firmware manifest; squashfs images may lose configuration after reboot."
+            exit 1
+          fi
+        done
         rm -rf packages
         cp -f ../../../../.config "${{ matrix.source }}-${{ matrix.branch }}.config" 2>/dev/null || true
         kernel_config="$(find ../../../../build_dir -path '*/linux-*/linux-*/.config' -type f -print -quit 2>/dev/null || true)"

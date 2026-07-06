@@ -5,7 +5,7 @@
 ## [Unreleased]
 
 ### Changed
-- 🔄 移除 Official OpenWrt `main` 构建目标。
+- 🔄 移除 Official OpenWrt `main` 构建目标，并清理历史保留的 official 配置文件和脚本。
 - ✅ 保留原本两个 ImmortalWrt/OpenClash 镜像不变：`immortalwrt/master`、`immortalwrt/openwrt-25.12`。
 - ✅ 新增 `immortalwrt-daed/master` 镜像，使用 ImmortalWrt `master` 分支。
 - ✅ 新增镜像集成 `QiuSimons/luci-app-daed`，不集成 OpenClash。
@@ -15,7 +15,8 @@
 - 🔄 Release 发布前强制校验 `squashfs-combined` 镜像存在，并在说明中提示备份和下载建议。
 
 ### Fixed
-- 🛠️ 恢复 F2FS overlay 所需的 `kmod-fs-f2fs`、`mkf2fs` 和 `f2fsck`，修复 squashfs 镜像无法持久保存配置的问题。
+- 🛠️ 恢复 F2FS overlay 所需的 `kmod-fs-f2fs`、`mkf2fs`、`f2fsck` 和 `f2fs-tools`，修复 squashfs 镜像无法持久保存配置的问题。
+- 🛠️ 修复 `immortalwrt-daed` 配置漏选 F2FS overlay 初始化工具的问题，并在 DIY 脚本和 GitHub Actions 中增加防回归校验。
 
 ### Added
 - ✅ 新增并接入 `hellomrli/my-openwrt-packages` 个人插件库，统一维护 Lucky、Watchdog、OpenClash、Daed。

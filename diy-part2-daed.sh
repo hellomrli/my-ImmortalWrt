@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # https://github.com/P3TERX/Actions-OpenWrt
-# File name: diy-part2.sh
+# File name: diy-part2-daed.sh
 # Description: OpenWrt DIY script part 2 (After Update feeds)
 #
 # Copyright (c) 2019-2024 P3TERX <https://p3terx.com>
@@ -68,6 +68,22 @@ APKREPOS
 sed -i '/^CONFIG_FEED_video=y/d' .config 2>/dev/null || true
 sed -i '/^# CONFIG_FEED_video is not set/d' .config 2>/dev/null || true
 echo '# CONFIG_FEED_video is not set' >> .config
+
+# Ensure x86 squashfs images can initialize and mount persistent F2FS overlay on first boot.
+# Without mkfs.f2fs, mount_root falls back to tmpfs overlay and all configuration is lost after reboot.
+ensure_config_enabled() {
+    local symbol="$1"
+    sed -i "/^${symbol}=y$/d;/^# ${symbol} is not set$/d" .config 2>/dev/null || true
+    echo "${symbol}=y" >> .config
+}
+
+for symbol in \
+    CONFIG_PACKAGE_kmod-fs-f2fs \
+    CONFIG_PACKAGE_mkf2fs \
+    CONFIG_PACKAGE_f2fsck \
+    CONFIG_PACKAGE_f2fs-tools; do
+    ensure_config_enabled "$symbol"
+done
 
 # 6. 构建信息输出
 echo "===================="

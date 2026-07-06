@@ -27,7 +27,7 @@
 - 默认管理地址：`192.168.50.1`，默认用户：`root`，默认密码：空密码（首次登录后请及时设置）。
 - 当前保留两个原版 ImmortalWrt / OpenClash 镜像，并额外新增一个 `immortalwrt-daed` 镜像。
 - 常用第三方插件统一来自 [`hellomrli/my-openwrt-packages`](https://github.com/hellomrli/my-openwrt-packages)，该仓库定时同步上游插件源码；插件库更新本身不触发固件编译，固件构建开始时会拉取当时最新版插件。
-- 已移除 Official OpenWrt `main` 构建目标；新增 daed 镜像使用 ImmortalWrt `master` 分支。
+- 本项目仅保留 ImmortalWrt 构建目标：两个 OpenClash 镜像和一个 Daed 镜像。
 - Release 仅发布 `squashfs` 相关镜像和 `rootfs.tar.gz`，不再发布 ext4 combined 镜像。
 - 每个 Release 附带最终 `.config` 和 kernel `.config`，便于追踪实际构建配置。
 
@@ -220,9 +220,7 @@ branches: all
 │       └── update-readme-build-table.py     # 构建状态表生成脚本
 ├── configs/
 │   ├── immortalwrt.config                   # 原本 ImmortalWrt / OpenClash 配置
-│   ├── immortalwrt-daed.config              # 新增 Daed 镜像配置
-│   └── openwrt-official.config              # 历史保留配置（workflow 不再引用）
-├── scripts/                                 # 历史保留脚本（workflow 不再引用）
+│   └── immortalwrt-daed.config              # 新增 Daed 镜像配置
 ├── diy-part1.sh                             # feeds 更新前脚本
 ├── diy-part2.sh                             # 原本 OpenClash 镜像脚本
 ├── diy-part2-daed.sh                        # 新增 Daed 镜像脚本
