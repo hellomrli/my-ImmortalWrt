@@ -26,7 +26,7 @@
 - 本项目使用 GitHub Actions 自动拉取 ImmortalWrt 源码，编译适用于 x86_64 软路由 / PVE / QEMU 的固件。
 - 默认管理地址：`192.168.50.1`，默认用户：`root`，默认密码：空密码（首次登录后请及时设置）。
 - 当前保留两个原版 ImmortalWrt / OpenClash 镜像，并额外新增一个 `immortalwrt-daed` 镜像。
-- 常用第三方插件统一来自 [`hellomrli/my-openwrt-packages`](https://github.com/hellomrli/my-openwrt-packages)，该仓库定时同步上游插件源码。
+- 常用第三方插件统一来自 [`hellomrli/my-openwrt-packages`](https://github.com/hellomrli/my-openwrt-packages)，该仓库定时同步上游插件源码；插件库更新本身不触发固件编译，固件构建开始时会拉取当时最新版插件。
 - 已移除 Official OpenWrt `main` 构建目标；新增 daed 镜像使用 ImmortalWrt `master` 分支。
 - Release 仅发布 `squashfs` 相关镜像和 `rootfs.tar.gz`，不再发布 ext4 combined 镜像。
 - 每个 Release 附带最终 `.config` 和 kernel `.config`，便于追踪实际构建配置。

@@ -37,13 +37,9 @@ jobs:
           - source: immortalwrt-daed
             repo_url: https://github.com/immortalwrt/immortalwrt
             branch: master
-          # 只监控上游源码和个人插件库；Golang 在每次构建前由 diy-part2*.sh 拉取最新 26.x，
-          # 不因 sbwml/packages_lang_golang 更新单独触发整套固件编译。
-          - source: packages
-            repo_url: https://github.com/hellomrli/my-openwrt-packages
-            branch: main
-            payload_sources: all
-            payload_branches: all
+          # 只监控 ImmortalWrt 上游源码。
+          # my-openwrt-packages 和 Golang 均在每次固件构建前拉取最新版本，
+          # 不因插件包或 Golang 单独更新而触发整套固件编译。
 
     steps:
 
