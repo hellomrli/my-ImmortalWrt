@@ -75,12 +75,12 @@ jobs:
                 "diy_p2_sh": "diy-part2.sh",
             },
             {
-                "source": "openwrt",
-                "branch": "main",
-                "repo_url": "https://github.com/openwrt/openwrt",
-                "config_file": "configs/openwrt-official.config",
-                "diy_p1_sh": "scripts/openwrt-official-part1.sh",
-                "diy_p2_sh": "scripts/openwrt-official-part2.sh",
+                "source": "immortalwrt-daed",
+                "branch": "master",
+                "repo_url": "https://github.com/immortalwrt/immortalwrt",
+                "config_file": "configs/immortalwrt-daed.config",
+                "diy_p1_sh": "diy-part1.sh",
+                "diy_p2_sh": "diy-part2-daed.sh",
             },
         ]
 
@@ -98,7 +98,6 @@ jobs:
 
         sources = parse_selection(os.environ.get("REQUESTED_SOURCES"))
         branches = parse_selection(os.environ.get("REQUESTED_BRANCHES"))
-
         selected = [
             target for target in targets
             if (sources is None or target["source"] in sources)
@@ -141,7 +140,8 @@ jobs:
         sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
         sudo docker image prune --all --force
         sudo -E apt-get -qq update
-        sudo -E apt-get -qq install ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential bzip2 ccache cmake cpio curl device-tree-compiler fastjar flex gawk gettext gcc-multilib g++-multilib git gperf haveged help2man intltool libc6-dev-i386 libelf-dev libfuse-dev libglib2.0-dev libgmp-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libpython3-dev libreadline-dev libssl-dev libtool genisoimage ninja-build p7zip p7zip-full patch pkgconf python3 python3-pyelftools python3-setuptools qemu-utils rsync scons squashfs-tools subversion swig texinfo upx-ucl unzip vim wget xmlto xxd zlib1g-dev
+        sudo -E apt-get -qq install ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential bzip2 ccache clang cmake cpio curl device-tree-compiler fastjar flex gawk gettext gcc-multilib g++-multilib git gperf haveged help2man intltool libc6-dev-i386 libelf-dev libfuse-dev libglib2.0-dev libgmp-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libpython3-dev libreadline-dev libssl-dev libtool llvm npm genisoimage ninja-build p7zip p7zip-full patch pkgconf python3 python3-pyelftools python3-setuptools qemu-utils rsync scons squashfs-tools subversion swig texinfo upx-ucl unzip vim wget xmlto xxd zlib1g-dev
+        sudo npm install -g pnpm
         sudo -E apt-get -qq autoremove --purge
         sudo -E apt-get -qq clean
         sudo timedatectl set-timezone "$TZ"
@@ -289,6 +289,14 @@ jobs:
           exit 1
         fi
         rm -rf packages
+        if [ "${{ matrix.source }}" = "immortalwrt-daed" ]; then
+          shopt -s nullglob
+          for file in *.img.gz *kernel.bin *rootfs.tar.gz; do
+            new="${file/immortalwrt/immortalwrt-daed}"
+            [ "$new" != "$file" ] || new="immortalwrt-daed-$file"
+            [ -e "$new" ] || mv "$file" "$new"
+          done
+        fi
         echo "Published firmware files:"
         find . -maxdepth 1 -type f -printf '%f\n' | sort
         echo "FIRMWARE=$PWD" >> $GITHUB_ENV
@@ -308,7 +316,26 @@ jobs:
         echo "release_tag=${{ matrix.source }}-${{ matrix.branch }}-$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
         touch release.txt
 
-        if [ "${{ matrix.source }}" = "immortalwrt" ]; then
+        if [ "${{ matrix.source }}" = "immortalwrt-daed" ]; then
+          echo "📦 **ImmortalWrt Daed x86_64 固件**" >> release.txt
+          echo "" >> release.txt
+          echo "🔹 **镜像名**: \`${{ matrix.source }}\`" >> release.txt
+          echo "🔹 **上游**: ImmortalWrt" >> release.txt
+          echo "🔹 **分支**: \`${{ matrix.branch }}\`" >> release.txt
+          echo "🔹 **Daed LuCI 源**: \`QiuSimons/luci-app-daed\`" >> release.txt
+          echo "🔹 **构建日期**: $(date '+%Y-%m-%d %H:%M:%S')" >> release.txt
+          echo "" >> release.txt
+          echo "### 默认配置" >> release.txt
+          echo "- IP: 192.168.50.1" >> release.txt
+          echo "- 用户名: root" >> release.txt
+          echo "- 密码: 无（首次登录需设置）" >> release.txt
+          echo "" >> release.txt
+          echo "### 已集成插件" >> release.txt
+          echo "- Daed / luci-app-daed" >> release.txt
+          echo "- Lucky" >> release.txt
+          echo "- Watchdog" >> release.txt
+          echo "- SQM" >> release.txt
+        else
           echo "📦 **ImmortalWrt x86_64 固件**" >> release.txt
           echo "" >> release.txt
           echo "🔹 **上游**: ImmortalWrt" >> release.txt
@@ -326,22 +353,6 @@ jobs:
           echo "- Lucky" >> release.txt
           echo "- Watchdog" >> release.txt
           echo "- SQM" >> release.txt
-        else
-          echo "📦 **Official OpenWrt x86_64 固件**" >> release.txt
-          echo "" >> release.txt
-          echo "🔹 **上游**: OpenWrt Official" >> release.txt
-          echo "🔹 **分支**: \`${{ matrix.branch }}\`" >> release.txt
-          echo "🔹 **构建日期**: $(date '+%Y-%m-%d %H:%M:%S')" >> release.txt
-          echo "" >> release.txt
-          echo "### 默认配置" >> release.txt
-          echo "- IP: 192.168.50.1" >> release.txt
-          echo "- 用户名: root" >> release.txt
-          echo "- 密码: 无（首次登录需设置）" >> release.txt
-          echo "" >> release.txt
-          echo "### 特性" >> release.txt
-          echo "- 官方 OpenWrt 纯净版本" >> release.txt
-          echo "- 针对 x86_64 优化" >> release.txt
-          echo "- 支持 PVE / QEMU 虚拟化" >> release.txt
         fi
 
         echo "" >> release.txt

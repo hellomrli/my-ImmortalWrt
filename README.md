@@ -1,11 +1,11 @@
-# ImmortalWrt & Official OpenWrt x86_64 云编译
+# ImmortalWrt x86_64 云编译
 
 [![Build OpenWrt](https://github.com/hellomrli/my-ImmortalWrt/actions/workflows/openwrt-builder.yml/badge.svg)](https://github.com/hellomrli/my-ImmortalWrt/actions/workflows/openwrt-builder.yml)
 [![Release](https://img.shields.io/github/v/release/hellomrli/my-ImmortalWrt)](https://github.com/hellomrli/my-ImmortalWrt/releases)
 [![License](https://img.shields.io/github/license/hellomrli/my-ImmortalWrt)](LICENSE)
 [![Downloads](https://img.shields.io/github/downloads/hellomrli/my-ImmortalWrt/total)](https://github.com/hellomrli/my-ImmortalWrt/releases)
 
-基于 [ImmortalWrt](https://github.com/immortalwrt/immortalwrt) 和 [OpenWrt Official](https://github.com/openwrt/openwrt) 构建的 x86_64 通用固件，面向虚拟机和 x86 软路由使用，当前主要按 PVE + Intel I226-V 直通网卡场景优化。
+基于 [ImmortalWrt](https://github.com/immortalwrt/immortalwrt) 构建的 x86_64 通用固件，面向虚拟机和 x86 软路由使用，当前主要按 PVE + Intel I226-V 直通网卡场景优化。保留原本两个 ImmortalWrt 镜像不变，并额外新增 `immortalwrt-daed` 镜像。
 
 ## 🎯 构建矩阵
 
@@ -13,9 +13,9 @@
 |--------|------|------|--------|---------|------|
 | **ImmortalWrt** | `master` | 6.18 | APK | 192.168.50.1 | OpenClash + Lucky + Watchdog |
 | **ImmortalWrt** | `openwrt-25.12` | 6.18 | APK | 192.168.50.1 | OpenClash + Lucky + Watchdog |
-| **OpenWrt Official** | `main` | 6.18 | APK | 192.168.50.1 | OpenClash + Lucky + Watchdog |
+| **immortalwrt-daed** | `master`（ImmortalWrt 主线） | 6.18 | APK | 192.168.50.1 | Daed + Lucky + Watchdog |
 
-> 💡 **所有版本的插件完全一致**！主要区别在于软件源。
+> 💡 已移除 Official OpenWrt `main` 构建；原本两个 ImmortalWrt 镜像保持 OpenClash 配置不变，新增的 `immortalwrt-daed` 使用 ImmortalWrt `master` 分支和 Daed。
 
 ## 📦 当前构建概览
 
@@ -44,11 +44,12 @@
 | **包管理** | APK |
 | **链接器** | MOLD |
 
-## 已集成的 LuCI 插件（所有版本完全一致）
+## 已集成的 LuCI 插件
 
 - `luci-app-firewall` — 防火墙管理
 - `luci-app-lucky` — Lucky 网络工具 / 端口转发等功能
-- `luci-app-openclash` — OpenClash 客户端（来自 `vernesong/OpenClash`）
+- `luci-app-openclash` — OpenClash 客户端（原本两个 ImmortalWrt 镜像）
+- `luci-app-daed` / `daed` — Daed 透明代理（仅 `immortalwrt-daed`，来自 `QiuSimons/luci-app-daed`）
 - `luci-app-sqm` — SQM / CAKE 队列管理
 - `luci-app-upnp` — UPnP 端口映射
 - `luci-app-watchdog` — LuCI / SSH 登录监控，登录失败可自动加入黑名单
@@ -59,7 +60,7 @@
 
 - `luci-theme-bootstrap` — 默认 LuCI 主题
 
-## 主要特性（所有版本完全一致）
+## 主要特性
 
 ### 🔌 硬件支持
 - ✅ 面向 x86_64 软路由构建，支持 squashfs、rootfs.tar.gz 和 EFI 启动镜像
@@ -94,11 +95,13 @@
 - ✅ 集成 `luci-app-watchdog`，用于公网 LuCI 登录失败监控和自动封禁辅助防护
 - ✅ 为 watchdog 补充运行依赖：`bash`、`curl`、`jq`、`flock`
 
-### 📦 第三方插件（所有版本都集成）
-- ✅ **OpenClash**：来自 `vernesong/OpenClash`
+### 📦 第三方插件
+- ✅ **OpenClash**：原本两个 ImmortalWrt 镜像保留 `vernesong/OpenClash`
+- ✅ **Daed / luci-app-daed**：新增 `immortalwrt-daed` 镜像使用 `QiuSimons/luci-app-daed`
 - ✅ **Lucky**：来自 `gdy666/luci-app-lucky`
 - ✅ **Watchdog**：来自 `sirpdboy/luci-app-watchdog`
-- ✅ **Golang 升级**：使用 `sbwml/packages_lang_golang`（OpenClash 编译需要）
+- ✅ **Golang 升级**：使用 `sbwml/packages_lang_golang`
+- ✅ **Daed 内核支持**：`immortalwrt-daed` 启用 eBPF / BTF / CGROUP_BPF / XDP_SOCKETS / kmod-xdp-sockets-diag
 
 ### ImmortalWrt 版本额外特性
 - ✅ 移除 video feed，避免镜像同步不完整导致 `apk update` 拉取失败
@@ -122,16 +125,16 @@
 5. 等待构建完成，从 [Releases](https://github.com/hellomrli/my-ImmortalWrt/releases) 下载
 
 可选值：
-- `sources`: `immortalwrt`、`openwrt` 或 `all`
-- `branches`: `master`、`openwrt-25.12`、`main` 或 `all`
+- `sources`: `immortalwrt`、`immortalwrt-daed` 或 `all`
+- `branches`: `master`、`openwrt-25.12` 或 `all`
 
 ### 下载已构建的固件
 
 直接访问 [Releases](https://github.com/hellomrli/my-ImmortalWrt/releases) 页面下载最新构建的固件。
 
 Release tag 格式：
-- ImmortalWrt: `immortalwrt-master-YYYY.MM.DD-HHMM` 或 `immortalwrt-openwrt-25.12-YYYY.MM.DD-HHMM`
-- Official OpenWrt: `openwrt-main-YYYY.MM.DD-HHMM`
+- 原本 ImmortalWrt 镜像：`immortalwrt-master-YYYY.MM.DD-HHMM`、`immortalwrt-openwrt-25.12-YYYY.MM.DD-HHMM`
+- 新增 Daed 镜像：`immortalwrt-daed-master-YYYY.MM.DD-HHMM`
 
 ### 升级建议
 
@@ -148,50 +151,51 @@ Release tag 格式：
 │   ├── openwrt-builder.yml        # 多源多分支构建
 │   └── update-checker.yml         # 更新检查
 ├── configs/
-│   ├── immortalwrt.config         # ImmortalWrt 配置文件
-│   └── openwrt-official.config    # Official OpenWrt 配置文件（完整移植）
-├── scripts/
-│   ├── openwrt-official-part1.sh  # Official OpenWrt DIY 脚本 part 1
-│   └── openwrt-official-part2.sh  # Official OpenWrt DIY 脚本 part 2
+│   ├── immortalwrt.config         # 原本 ImmortalWrt / OpenClash 配置文件
+│   ├── immortalwrt-daed.config    # 新增 Daed 镜像配置文件
+│   └── openwrt-official.config    # 历史保留配置（workflow 不再引用）
+├── scripts/                       # 历史保留脚本（workflow 不再引用）
 ├── diy-part1.sh                   # ImmortalWrt DIY 脚本 part 1
-├── diy-part2.sh                   # ImmortalWrt DIY 脚本 part 2
+├── diy-part2.sh                   # 原本 ImmortalWrt / OpenClash DIY 脚本 part 2
+├── diy-part2-daed.sh              # 新增 Daed 镜像 DIY 脚本 part 2
 └── README.md
 ```
 
-## 三个版本详细对比
+## 版本详细对比
 
-| 对比项 | ImmortalWrt master | OpenWrt main | ImmortalWrt openwrt-25.12 |
-|--------|-------------------|--------------|---------------------------|
-| **软件源** | ImmortalWrt | OpenWrt Official | ImmortalWrt |
+| 对比项 | ImmortalWrt master | ImmortalWrt openwrt-25.12 | immortalwrt-daed master |
+|--------|-------------------|---------------------------|--------------------------|
+| **软件源** | ImmortalWrt | ImmortalWrt | ImmortalWrt |
 | **包管理器** | APK | APK | APK |
 | **内核版本** | 6.18 | 6.18 | 6.18 |
-| **插件** | 完整 | 完整 | 完整 |
+| **插件** | OpenClash + Lucky + Watchdog | OpenClash + Lucky + Watchdog | Daed + Lucky + Watchdog |
 | **驱动** | 完整 | 完整 | 完整 |
-| **优化** | 完整 | 完整 | 完整 |
+| **优化** | 完整 | 完整 | 完整 + Daed eBPF/BTF/XDP 支持 |
 
 ### 选择建议
 
 #### 选择 ImmortalWrt master，如果你：
 - ✅ 接受 ImmortalWrt 软件源
 - ✅ 需要最新的开发版功能
-
-#### 选择 OpenWrt main，如果你：
-- ✅ 需要官方 OpenWrt 软件源
-- ✅ 需要最新的开发版功能
-- ✅ 与 ImmortalWrt master 内核和包管理器相同
+- ✅ 希望保持原本 OpenClash 镜像不变
 
 #### 选择 ImmortalWrt openwrt-25.12，如果你：
 - ✅ 接受 ImmortalWrt 软件源
 - ✅ 需要 ImmortalWrt 的稳定分支
+- ✅ 希望保持原本 OpenClash 镜像不变
 
-> 💡 **所有版本的插件和优化完全相同！** 主要区别仅在于软件源选择。
+#### 选择 immortalwrt-daed master，如果你：
+- ✅ 需要 Daed / luci-app-daed
+- ✅ 需要 daed 所需的 eBPF / BTF / XDP 内核支持
+
+> 💡 原本两个 ImmortalWrt 镜像保持不变，`immortalwrt-daed` 是新增镜像。
 
 ## 致谢
 
 - [ImmortalWrt](https://github.com/immortalwrt/immortalwrt)
-- [OpenWrt](https://github.com/openwrt/openwrt)
 - [P3TERX/Actions-OpenWrt](https://github.com/P3TERX/Actions-OpenWrt)
 - [gdy666/luci-app-lucky](https://github.com/gdy666/luci-app-lucky)
 - [vernesong/OpenClash](https://github.com/vernesong/OpenClash)
+- [QiuSimons/luci-app-daed](https://github.com/QiuSimons/luci-app-daed)
 - [sirpdboy/luci-app-watchdog](https://github.com/sirpdboy/luci-app-watchdog)
 - [sbwml/packages_lang_golang](https://github.com/sbwml/packages_lang_golang)

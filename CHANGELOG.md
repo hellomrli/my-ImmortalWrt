@@ -5,6 +5,11 @@
 ## [Unreleased]
 
 ### Changed
+- 🔄 移除 Official OpenWrt `main` 构建目标。
+- ✅ 保留原本两个 ImmortalWrt/OpenClash 镜像不变：`immortalwrt/master`、`immortalwrt/openwrt-25.12`。
+- ✅ 新增 `immortalwrt-daed/master` 镜像，使用 ImmortalWrt `master` 分支。
+- ✅ 新增镜像集成 `QiuSimons/luci-app-daed`，不集成 OpenClash。
+- 🔄 为 daed 镜像开启 eBPF / BTF / CGROUP_BPF / XDP_SOCKETS / `kmod-xdp-sockets-diag` 等内核配置，并在 GitHub Actions 环境安装 clang、llvm、npm、pnpm。
 - 🔄 关闭 ext4 rootfs 镜像生成，Release 仅保留 squashfs 镜像和 rootfs.tar.gz。
 - 🔄 预置 fstab 只保留 `/boot` 挂载，不再把只读 squashfs 根分区挂载为 `/`。
 - 🔄 Release 发布前强制校验 `squashfs-combined` 镜像存在，并在说明中提示备份和下载建议。

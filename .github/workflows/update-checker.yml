@@ -34,9 +34,9 @@ jobs:
           - source: immortalwrt
             repo_url: https://github.com/immortalwrt/immortalwrt
             branch: openwrt-25.12
-          - source: openwrt
-            repo_url: https://github.com/openwrt/openwrt
-            branch: main
+          - source: immortalwrt-daed
+            repo_url: https://github.com/immortalwrt/immortalwrt
+            branch: master
 
     steps:
 
