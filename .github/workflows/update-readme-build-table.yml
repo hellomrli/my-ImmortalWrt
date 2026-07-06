@@ -18,6 +18,8 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v4
       with:
+        # Release events run on refs/tags/<tag>; update README on main instead.
+        ref: main
         fetch-depth: 0
 
     - name: Update README build table

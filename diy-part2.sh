@@ -34,7 +34,7 @@ if [ ! -d package/my-openwrt-packages ]; then
     git clone --depth 1 https://github.com/hellomrli/my-openwrt-packages.git package/my-openwrt-packages
 fi
 
-# 2. 强制升级 Golang 版本 (命脉：否则 daed 很大几率编译失败)
+# 2. 每次启动编译前刷新 Golang 到最新 26.x（仅随固件构建更新，不作为自动触发源）
 rm -rf feeds/packages/lang/golang
 git clone --depth 1 https://github.com/sbwml/packages_lang_golang -b 26.x feeds/packages/lang/golang
 

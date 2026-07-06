@@ -19,7 +19,7 @@
 
 ### Added
 - ✅ 新增并接入 `hellomrli/my-openwrt-packages` 个人插件库，统一维护 Lucky、Watchdog、OpenClash、Daed。
-- ✅ Update Checker 增加个人插件库监控，插件库更新后自动触发全部固件构建。
+- ✅ Update Checker 增加个人插件库监控，插件库更新后自动触发全部固件构建；Golang 仅在每次固件构建前刷新到最新 26.x，不作为单独触发源。
 - ✅ 参考 haiibo / kenzok8 的 x86_64 配置，新增 `lsblk`、`ipset`、`kmod-nft-socket`、`coreutils-nohup`、`nano`、`openssh-sftp-server`。
 - ✅ Release 产物附带最终 `.config` 和 kernel `.config`，便于追踪实际构建配置。
 
