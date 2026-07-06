@@ -18,8 +18,6 @@
 #echo 'src-git kenzo https://github.com/kenzok8/openwrt-packages' >>feeds.conf.default
 #echo 'src-git small https://github.com/kenzok8/small' >>feeds.conf.default
 #echo 'src-git passwall https://github.com/xiaorouji/openwrt-passwall' >>feeds.conf.default
-# Add luci-app-watchdog for LuCI login failure auto-ban
-if [ ! -d package/watchdog ]; then
-    git clone --depth 1 https://github.com/sirpdboy/luci-app-watchdog.git package/watchdog
-fi
+# Custom third-party packages are cloned in diy-part2.sh / diy-part2-daed.sh
+# from https://github.com/hellomrli/my-openwrt-packages.
 

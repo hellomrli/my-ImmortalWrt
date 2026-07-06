@@ -37,6 +37,11 @@ jobs:
           - source: immortalwrt-daed
             repo_url: https://github.com/immortalwrt/immortalwrt
             branch: master
+          - source: packages
+            repo_url: https://github.com/hellomrli/my-openwrt-packages
+            branch: main
+            payload_sources: all
+            payload_branches: all
 
     steps:
 
@@ -67,7 +72,7 @@ jobs:
       with:
         token: ${{ github.token }}
         event-type: openwrt-builder
-        client-payload: '{"sources": "${{ matrix.source }}", "branches": "${{ matrix.branch }}"}'
+        client-payload: '{"sources": "${{ matrix.payload_sources || matrix.source }}", "branches": "${{ matrix.payload_branches || matrix.branch }}"}'
 
   cleanup-runs:
     needs: check
