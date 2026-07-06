@@ -28,6 +28,7 @@
 - 当前保留两个原版 ImmortalWrt / OpenClash 镜像，并额外新增一个 `immortalwrt-daed` 镜像。
 - 已移除 Official OpenWrt `main` 构建目标；新增 daed 镜像使用 ImmortalWrt `master` 分支。
 - Release 仅发布 `squashfs` 相关镜像和 `rootfs.tar.gz`，不再发布 ext4 combined 镜像。
+- 每个 Release 附带最终 `.config` 和 kernel `.config`，便于追踪实际构建配置。
 
 
 ## 固件特色 [![](https://img.shields.io/badge/-本项目固件特色-FFFFFF.svg)](#固件特色-)
@@ -140,10 +141,10 @@ CONFIG_PACKAGE_kmod-xdp-sockets-diag=y
 <br/>
 
 - 网络工具：`ethtool`、`iperf3`、`curl`、`wget-ssl`
-- 系统工具：`htop`、`bash`、`jq`、`flock`
+- 系统工具：`htop`、`bash`、`jq`、`flock`、`lsblk`、`nano`、`nohup`、`openssh-sftp-server`
 - 虚拟化：`qemu-ga`
 - 文件系统：VFAT、squashfs、F2FS overlay
-- 网络优化：nftables、flow offload、fullcone、tproxy、SQM / CAKE / IFB / BBR
+- 网络优化：nftables、`ipset`、`kmod-nft-socket`、flow offload、fullcone、tproxy、SQM / CAKE / IFB / BBR
 - 加密优化：AES / SHA 常用 crypto 模块、OpenSSL ASM / SSE2 / speed optimize
 
 </details>

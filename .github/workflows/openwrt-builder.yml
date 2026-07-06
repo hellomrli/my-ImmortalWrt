@@ -289,6 +289,9 @@ jobs:
           exit 1
         fi
         rm -rf packages
+        cp -f ../../../../.config "${{ matrix.source }}-${{ matrix.branch }}.config" 2>/dev/null || true
+        kernel_config="$(find ../../../../build_dir -path '*/linux-*/linux-*/.config' -type f -print -quit 2>/dev/null || true)"
+        [ -n "$kernel_config" ] && cp -f "$kernel_config" "${{ matrix.source }}-${{ matrix.branch }}_kernel.config" || true
         if [ "${{ matrix.source }}" = "immortalwrt-daed" ]; then
           shopt -s nullglob
           for file in *.img.gz *kernel.bin *rootfs.tar.gz; do

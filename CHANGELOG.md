@@ -17,6 +17,10 @@
 ### Fixed
 - 🛠️ 恢复 F2FS overlay 所需的 `kmod-fs-f2fs`、`mkf2fs` 和 `f2fsck`，修复 squashfs 镜像无法持久保存配置的问题。
 
+### Added
+- ✅ 参考 haiibo / kenzok8 的 x86_64 配置，新增 `lsblk`、`ipset`、`kmod-nft-socket`、`coreutils-nohup`、`nano`、`openssh-sftp-server`。
+- ✅ Release 产物附带最终 `.config` 和 kernel `.config`，便于追踪实际构建配置。
+
 ## [3.0.0] - 2026-06-29
 
 ### Added
