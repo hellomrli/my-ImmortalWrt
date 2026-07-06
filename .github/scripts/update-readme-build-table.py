@@ -29,10 +29,10 @@ TARGETS = [
         "tag_prefix": "immortalwrt-openwrt-25.12-",
     },
     {
-        "label": "OpenWrt Official `main`",
-        "source": "openwrt",
-        "branch": "main",
-        "tag_prefix": "openwrt-main-",
+        "label": "ImmortalWrt Daed `master`",
+        "source": "immortalwrt-daed",
+        "branch": "master",
+        "tag_prefix": "immortalwrt-daed-master-",
     },
 ]
 
