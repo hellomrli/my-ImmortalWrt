@@ -235,6 +235,22 @@ jobs:
             exit 1
           fi
         done
+        echo "Checking sysupgrade backup retention list..."
+        keep_list="package/base-files/files/etc/sysupgrade.conf"
+        if [ ! -s "$keep_list" ]; then
+          echo "::error::${keep_list} is missing; plugin runtime configuration may be lost during sysupgrade."
+          exit 1
+        fi
+        for keep_path in \
+          /etc/openclash \
+          /etc/daed \
+          /etc/config/lucky.daji \
+          /etc/config/watchdog; do
+          if ! grep -qx "$keep_path" "$keep_list"; then
+            echo "::error::${keep_path} is missing from ${keep_list}; plugin runtime configuration may be lost during sysupgrade."
+            exit 1
+          fi
+        done
         make download -j8
         find dl -size -1024c -exec ls -l {} \;
         find dl -size -1024c -exec rm -f {} \;

@@ -17,6 +17,7 @@
 ### Fixed
 - 🛠️ 恢复 F2FS overlay 所需的 `kmod-fs-f2fs`、`mkf2fs`、`f2fsck` 和 `f2fs-tools`，修复 squashfs 镜像无法持久保存配置的问题。
 - 🛠️ 修复 `immortalwrt-daed` 配置漏选 F2FS overlay 初始化工具的问题，并在 DIY 脚本和 GitHub Actions 中增加防回归校验。
+- 🛡️ 预置 `/etc/sysupgrade.conf`，额外保留 OpenClash、Daed、Lucky、Watchdog 等插件运行时配置，降低 sysupgrade 后订阅和插件设置丢失风险。
 
 ### Added
 - ✅ 新增并接入 `hellomrli/my-openwrt-packages` 个人插件库，统一维护 Lucky、Watchdog、OpenClash、Daed。

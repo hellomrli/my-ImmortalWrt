@@ -77,6 +77,29 @@
 - 更新后确认 `/` 使用持久 overlay，不应显示为 `overlayfs:/tmp/root`
 
 
+### 防止升级后配置丢失
+
+本仓库的 x86_64 squashfs 镜像已经做了两层防护：
+
+1. 固件构建时强制启用 `kmod-fs-f2fs`、`mkf2fs`、`f2fsck`、`f2fs-tools`，确保首次启动能创建并挂载持久化 F2FS overlay；如果缺少这些包，CI 会直接失败，避免发布“重启后配置丢失”的镜像。
+2. 固件内预置 `/etc/sysupgrade.conf`，额外保留 OpenClash、Daed、Lucky、Watchdog 等插件的运行时配置目录，例如 `/etc/openclash`、`/etc/daed`、`/etc/config/lucky.daji`。
+
+升级建议：
+
+```bash
+# 升级前先导出备份，下载到电脑或其他安全位置
+sysupgrade -b /tmp/backup-before-upgrade.tar.gz
+
+# 查看将会被备份的文件清单，确认包含你的插件配置
+sysupgrade -l | sort | grep -E 'openclash|daed|lucky|watchdog|network|dhcp|firewall|passwd|shadow'
+
+# 通过 LuCI / sysupgrade 正常升级，并保留配置；不要使用 -n
+sysupgrade -v /tmp/immortalwrt-xxx-squashfs-combined-efi.img.gz
+```
+
+注意：如果你把 `*.img.gz` 解压后用 `dd`、PVE 重新导入磁盘、写盘工具或“全盘覆盖”的方式刷入，新镜像会覆盖原磁盘分区，旧 overlay 必然丢失。要保留配置，请优先走 LuCI/`sysupgrade`，或先导出备份并在新系统中恢复。
+
+
 ## 默认参数 [![](https://img.shields.io/badge/-固件默认信息-FFFFFF.svg)](#默认参数-)
 
 | 项目 | 默认值 |
