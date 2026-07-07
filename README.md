@@ -9,6 +9,7 @@
 
 [![](https://img.shields.io/badge/-目录:-696969.svg)](#readme)
 [![](https://img.shields.io/badge/-项目说明-FFFFFF.svg)](#项目说明-)
+[![](https://img.shields.io/badge/-快速使用-FFFFFF.svg)](#快速使用)
 [![](https://img.shields.io/badge/-固件特色-FFFFFF.svg)](#固件特色-)
 [![](https://img.shields.io/badge/-固件下载-FFFFFF.svg)](#固件下载-)
 [![](https://img.shields.io/badge/-插件说明-FFFFFF.svg)](#插件说明-)
@@ -30,6 +31,23 @@
 - 本项目仅保留 ImmortalWrt 构建目标：两个 OpenClash 镜像和一个 Daed 镜像。
 - Release 仅发布 `squashfs` 相关镜像和 `rootfs.tar.gz`，不再发布 ext4 combined 镜像。
 - 每个 Release 附带最终 `.config` 和 kernel `.config`，便于追踪实际构建配置。
+
+
+## 快速使用
+
+1. 在 [Releases](https://github.com/hellomrli/my-ImmortalWrt/releases) 下载对应构建目标的 `squashfs-combined-efi.img.gz`。
+2. 首次全新安装可写盘到虚拟磁盘 / 物理盘；升级已有系统请优先使用 LuCI 或 `sysupgrade`。
+3. 首次登录地址：`http://192.168.50.1`，用户 `root`，默认空密码，登录后请立即设置密码。
+4. 如果使用 PVE / QEMU，推荐下载 UEFI 镜像，并确认 `qemu-ga` 正常运行。
+5. 每次升级前先执行 `sysupgrade -b /tmp/backup-before-upgrade.tar.gz`，并把备份下载到电脑或 NAS。
+
+| 使用场景 | 推荐文件 | 备注 |
+|---|---|---|
+| PVE / UEFI x86_64 | `squashfs-combined-efi.img.gz` | 默认推荐 |
+| Legacy BIOS | `squashfs-combined.img.gz` | 老机器或非 UEFI 环境 |
+| 容器 / chroot / 自定义磁盘 | `rootfs.tar.gz` | 需要自行处理启动与分区 |
+
+> 想保留配置时，不要用 `dd`、PVE 重新导入整盘或写盘工具覆盖旧磁盘；这些方式会覆盖原 overlay。请使用 LuCI / `sysupgrade`，或先导出备份后再恢复。
 
 
 ## 固件特色 [![](https://img.shields.io/badge/-本项目固件特色-FFFFFF.svg)](#固件特色-)
