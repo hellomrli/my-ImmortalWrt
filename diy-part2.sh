@@ -84,6 +84,26 @@ sed -i '/^CONFIG_FEED_video=y/d' .config 2>/dev/null || true
 sed -i '/^# CONFIG_FEED_video is not set/d' .config 2>/dev/null || true
 echo '# CONFIG_FEED_video is not set' >> .config
 
+# Use the GitHub runner/system Go as the bootstrap toolchain for OpenWrt's Go package.
+# Building Go's full bootstrap chain (1.4 -> 1.17 -> 1.20 -> 1.22 -> 1.24) on every
+# firmware build is slow and fragile on modern CI images; OpenWrt still builds the
+# target host Go from source, but it can start from this external bootstrap root.
+if command -v go >/dev/null 2>&1; then
+    GO_BOOTSTRAP_ROOT="$(go env GOROOT 2>/dev/null || true)"
+    if [ -n "$GO_BOOTSTRAP_ROOT" ] && [ -x "$GO_BOOTSTRAP_ROOT/bin/go" ]; then
+        sed -i '/^CONFIG_GOLANG_EXTERNAL_BOOTSTRAP_ROOT=/d;/^CONFIG_GOLANG_BUILD_BOOTSTRAP=y$/d;/^# CONFIG_GOLANG_BUILD_BOOTSTRAP is not set$/d' .config 2>/dev/null || true
+        printf 'CONFIG_GOLANG_EXTERNAL_BOOTSTRAP_ROOT="%s"\n' "$GO_BOOTSTRAP_ROOT" >> .config
+        echo '# CONFIG_GOLANG_BUILD_BOOTSTRAP is not set' >> .config
+        echo "Using external Go bootstrap: $GO_BOOTSTRAP_ROOT"
+    else
+        echo "ERROR: go is present but GOROOT is not usable; cannot configure external Go bootstrap" >&2
+        exit 1
+    fi
+else
+    echo "ERROR: go command is missing; actions/setup-go should provide the external Go bootstrap" >&2
+    exit 1
+fi
+
 # Ensure x86 squashfs images can initialize and mount persistent F2FS overlay on first boot.
 # Without mkfs.f2fs, mount_root falls back to tmpfs overlay and all configuration is lost after reboot.
 ensure_config_enabled() {

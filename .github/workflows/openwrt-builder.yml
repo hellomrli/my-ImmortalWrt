@@ -140,6 +140,12 @@ jobs:
         sudo mkdir -p /workdir
         sudo chown $USER:$GROUPS /workdir
 
+    - name: Set up bootstrap Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.26.5'
+        check-latest: true
+
     - name: Clone source code
       run: |
         df -hT "$PWD"
@@ -216,6 +222,15 @@ jobs:
       run: |
         cd openwrt
         make defconfig
+        echo "Checking Go external bootstrap configuration..."
+        if ! grep -qx '# CONFIG_GOLANG_BUILD_BOOTSTRAP is not set' .config; then
+          echo "::error::CONFIG_GOLANG_BUILD_BOOTSTRAP should be disabled; use actions/setup-go as external bootstrap to avoid rebuilding the full Go bootstrap chain."
+          exit 1
+        fi
+        if ! grep -Eq '^CONFIG_GOLANG_EXTERNAL_BOOTSTRAP_ROOT="[^"]+"$' .config; then
+          echo "::error::CONFIG_GOLANG_EXTERNAL_BOOTSTRAP_ROOT is not set."
+          exit 1
+        fi
         echo "Checking required F2FS overlay bootstrap packages in final .config..."
         for symbol in \
           CONFIG_PACKAGE_kmod-fs-f2fs \

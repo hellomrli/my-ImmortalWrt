@@ -136,8 +136,9 @@ daed DNS routing
 - 打包结构基于 OpenWrt 官方 `packages/lang/golang`。
 - Go 源码来自 Go 官方发布源：`go.dev/dl` / `dl.google.com/go`。
 - 当前固定版本：Go `1.26.5`。
+- CI 通过 `actions/setup-go` 提供外部 bootstrap GOROOT，避免每次从 Go 1.4 开始重建完整 bootstrap 链。
 
-这样避免 ImmortalWrt / OpenWrt feed 中 Go 版本滞后，同时也不依赖第三方 Golang 包仓库。
+这样避免 ImmortalWrt / OpenWrt feed 中 Go 版本滞后，同时也不依赖第三方 Golang 包仓库；OpenWrt 仍会从源码构建固件使用的 host Go，只是不再重复构建旧 bootstrap 工具链。
 
 ## 配置保留与升级
 
