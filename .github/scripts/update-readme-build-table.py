@@ -28,12 +28,6 @@ TARGETS = [
         "branch": "openwrt-25.12",
         "tag_prefix": "immortalwrt-openwrt-25.12-",
     },
-    {
-        "label": "ImmortalWrt Daed `master`",
-        "source": "immortalwrt-daed",
-        "branch": "master",
-        "tag_prefix": "immortalwrt-daed-master-",
-    },
 ]
 
 

@@ -5,24 +5,18 @@
 ## [Unreleased]
 
 ### Changed
-- 🔄 移除 Official OpenWrt `main` 构建目标，并清理历史保留的 official 配置文件和脚本。
-- ✅ 保留原本两个 ImmortalWrt/OpenClash 镜像不变：`immortalwrt/master`、`immortalwrt/openwrt-25.12`。
-- ✅ 新增 `immortalwrt-daed/master` 镜像，使用 ImmortalWrt `master` 分支。
-- ✅ 新增镜像集成 `QiuSimons/luci-app-daed`，不集成 OpenClash。
-- 🔄 为 daed 镜像开启 eBPF / BTF / CGROUP_BPF / XDP_SOCKETS / `kmod-xdp-sockets-diag` 等内核配置，并在 GitHub Actions 环境安装 clang、llvm、npm、pnpm。
-- 🔄 关闭 ext4 rootfs 镜像生成，Release 仅保留 squashfs 镜像和 rootfs.tar.gz。
-- 🔄 预置 fstab 只保留 `/boot` 挂载，不再把只读 squashfs 根分区挂载为 `/`。
-- 🔄 Release 发布前强制校验 `squashfs-combined` 镜像存在，并在说明中提示备份和下载建议。
+- 🔄 构建矩阵收敛为两个正式 ImmortalWrt 固件：`immortalwrt/master` 与 `immortalwrt/openwrt-25.12`；产物名称不再使用 `immortalwrt-daed` 后缀。
+- 🔄 固件内容统一按当前 `192.168.50.1` 路由器软件结构构建：Daed + 双 AdGuardHome + Lucky + Watchdog + SQM + UPnP + SFTP。
+- 🔄 Golang 改为 `my-openwrt-packages/golang` 覆盖包：基于 OpenWrt 官方打包结构，源码固定到 Go 官方 `go.dev/dl` / `dl.google.com/go` 的 Go 1.26.5。
+- 🔄 保留 ext4 rootfs 关闭策略，Release 仅发布 squashfs 相关镜像和 rootfs.tar.gz。
 
 ### Fixed
-- 🛠️ 恢复 F2FS overlay 所需的 `kmod-fs-f2fs`、`mkf2fs`、`f2fsck` 和 `f2fs-tools`，修复 squashfs 镜像无法持久保存配置的问题。
-- 🛠️ 修复 `immortalwrt-daed` 配置漏选 F2FS overlay 初始化工具的问题，并在 DIY 脚本和 GitHub Actions 中增加防回归校验。
-- 🛡️ 预置 `/etc/sysupgrade.conf`，额外保留 OpenClash、Daed、Lucky、Watchdog 等插件运行时配置，降低 sysupgrade 后订阅和插件设置丢失风险。
+- 🛠️ 强制启用并校验 F2FS overlay 所需的 `kmod-fs-f2fs`、`mkf2fs`、`f2fsck` 和 `f2fs-tools`，避免 squashfs 镜像重启后配置落到 tmpfs 而丢失。
+- 🛡️ 预置 `/etc/sysupgrade.conf`，额外保留 Daed、双 AdGuardHome、Lucky、Watchdog 等运行时配置与 ADH 二进制目录。
 
 ### Added
-- ✅ 新增并接入 `hellomrli/my-openwrt-packages` 个人插件库，统一维护 Lucky、Watchdog、OpenClash、Daed。
-- ✅ Update Checker 仅监控 ImmortalWrt 上游源码；个人插件库和 Golang 仅在每次固件构建前刷新到最新版本，不作为单独触发源。
-- ✅ 参考 haiibo / kenzok8 的 x86_64 配置，新增 `lsblk`、`ipset`、`kmod-nft-socket`、`coreutils-nohup`、`nano`、`openssh-sftp-server`。
+- ✅ 新增 `adguardhome-dual` 运行时包：安装 Go 官方 ADH Core v0.107.77，并提供 `adh-direct` / `adh-proxy` 两个 procd 服务。
+- ✅ 预装 `openssh-sftp-server`，方便后续 SFTP/SCP 传递文件。
 - ✅ Release 产物附带最终 `.config` 和 kernel `.config`，便于追踪实际构建配置。
 
 ## [3.0.0] - 2026-06-29

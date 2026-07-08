@@ -21,22 +21,29 @@ sed -i 's/192.168.1.1/192.168.50.1/g' package/base-files/files/bin/config_genera
 # Modify hostname
 #sed -i 's/OpenWrt/P3TERX-Router/g' package/base-files/files/bin/config_generate
 
-# 1. 拉取个人 OpenWrt 插件库（Lucky / Watchdog / OpenClash / Daed）
+# 1. 拉取个人 OpenWrt 插件库（Daed / 双 ADH / Lucky / Watchdog）
 rm -rf \
     package/my-openwrt-packages \
     package/lucky \
     package/watchdog \
-    package/openclash \
-    package/dae \
-    feeds/luci/applications/luci-app-openclash \
-    package/feeds/luci/luci-app-openclash
+    package/dae
 if [ ! -d package/my-openwrt-packages ]; then
     git clone --depth 1 https://github.com/hellomrli/my-openwrt-packages.git package/my-openwrt-packages
 fi
 
-# 2. 每次启动编译前刷新 Golang 到最新 26.x（仅随固件构建更新，不作为自动触发源）
-rm -rf feeds/packages/lang/golang
-git clone --depth 1 https://github.com/sbwml/packages_lang_golang -b 26.x feeds/packages/lang/golang
+# 2. Golang 使用 my-openwrt-packages/golang 覆盖 feeds/packages/lang/golang。
+# 该覆盖包基于 OpenWrt 官方 golang 打包结构，Go 源码从 go.dev/dl / dl.google.com/go 官方源下载。
+if [ -d package/my-openwrt-packages/golang ]; then
+    rm -rf feeds/packages/lang/golang
+    cp -a package/my-openwrt-packages/golang feeds/packages/lang/golang
+    # Avoid duplicate golang package definitions from both package/ and feeds/ trees.
+    rm -rf package/my-openwrt-packages/golang
+    ./scripts/feeds update -i packages
+    ./scripts/feeds install -p packages -f golang golang-bootstrap golang1.26 || ./scripts/feeds install -a
+elif [ ! -d feeds/packages/lang/golang ]; then
+    echo "ERROR: feeds/packages/lang/golang is missing after feeds update" >&2
+    exit 1
+fi
 
 # 3. 生成自定义 fstab 配置文件，只保留 /boot 挂载，避免把只读 squashfs 根分区当作 extroot
 mkdir -p package/base-files/files/etc/config
@@ -58,12 +65,15 @@ FSTAB
 
 # 3.1. 预置 sysupgrade 额外备份清单，保护第三方插件运行时目录。
 # /etc/config 默认会被 sysupgrade 备份；这里显式列出关键插件配置和非 UCI 数据目录，
-# 避免 OpenClash 订阅/自定义规则、Daed 数据库、Lucky 配置目录在升级后丢失。
+# 避免 Daed、双 AdGuardHome、Lucky、Watchdog 等运行时配置在 sysupgrade 后丢失。
 cat > package/base-files/files/etc/sysupgrade.conf << 'SYSUPGRADE'
-/etc/config/openclash
-/etc/openclash
 /etc/config/daed
 /etc/daed
+/etc/AdGuardHome-direct.yaml
+/etc/AdGuardHome-proxy.yaml
+/usr/bin/AdGuardHome
+/etc/init.d/adh-direct
+/etc/init.d/adh-proxy
 /etc/config/lucky
 /etc/config/lucky.daji
 /etc/config/watchdog
@@ -96,13 +106,15 @@ for symbol in \
     CONFIG_PACKAGE_kmod-fs-f2fs \
     CONFIG_PACKAGE_mkf2fs \
     CONFIG_PACKAGE_f2fsck \
-    CONFIG_PACKAGE_f2fs-tools; do
+    CONFIG_PACKAGE_f2fs-tools \
+    CONFIG_PACKAGE_openssh-sftp-server \
+    CONFIG_PACKAGE_adguardhome-dual; do
     ensure_config_enabled "$symbol"
 done
 
 # 6. 构建信息输出
 echo "===================="
-echo "ImmortalWrt Daed Custom Build Info"
+echo "ImmortalWrt Custom Build Info"
 echo "Branch: $(git -C . describe --tags --always 2>/dev/null || echo 'unknown')"
 echo "Build Date: $(date '+%Y-%m-%d %H:%M:%S')"
 echo "Build Host: GitHub Actions"
@@ -113,6 +125,6 @@ mkdir -p package/base-files/files/etc
 cat > package/base-files/files/etc/openwrt_release_custom << RELEASE
 BUILD_DATE="$(date '+%Y%m%d%H%M')"
 BUILD_REPO="hellomrli/my-ImmortalWrt"
-BUILD_DESC="ImmortalWrt Daed x86_64 for PVE, default IP 192.168.50.1"
-BUILD_PLUGINS="Daed+Lucky+Watchdog"
+BUILD_DESC="ImmortalWrt x86_64 for PVE, default IP 192.168.50.1"
+BUILD_PLUGINS="Daed+Dual-AdGuardHome+Lucky+Watchdog+SFTP"
 RELEASE

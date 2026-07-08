@@ -64,21 +64,13 @@ jobs:
                 "repo_url": "https://github.com/immortalwrt/immortalwrt",
                 "config_file": "configs/immortalwrt.config",
                 "diy_p1_sh": "diy-part1.sh",
-                "diy_p2_sh": "diy-part2.sh",
+                "diy_p2_sh": "diy-part2-daed.sh",
             },
             {
                 "source": "immortalwrt",
                 "branch": "openwrt-25.12",
                 "repo_url": "https://github.com/immortalwrt/immortalwrt",
                 "config_file": "configs/immortalwrt.config",
-                "diy_p1_sh": "diy-part1.sh",
-                "diy_p2_sh": "diy-part2.sh",
-            },
-            {
-                "source": "immortalwrt-daed",
-                "branch": "master",
-                "repo_url": "https://github.com/immortalwrt/immortalwrt",
-                "config_file": "configs/immortalwrt-daed.config",
                 "diy_p1_sh": "diy-part1.sh",
                 "diy_p2_sh": "diy-part2-daed.sh",
             },
@@ -229,7 +221,9 @@ jobs:
           CONFIG_PACKAGE_kmod-fs-f2fs \
           CONFIG_PACKAGE_mkf2fs \
           CONFIG_PACKAGE_f2fsck \
-          CONFIG_PACKAGE_f2fs-tools; do
+          CONFIG_PACKAGE_f2fs-tools \
+          CONFIG_PACKAGE_openssh-sftp-server \
+          CONFIG_PACKAGE_adguardhome-dual; do
           if ! grep -qx "${symbol}=y" .config; then
             echo "::error::${symbol} is not enabled after make defconfig; squashfs images may lose configuration after reboot."
             exit 1
@@ -242,8 +236,12 @@ jobs:
           exit 1
         fi
         for keep_path in \
-          /etc/openclash \
           /etc/daed \
+          /etc/AdGuardHome-direct.yaml \
+          /etc/AdGuardHome-proxy.yaml \
+          /usr/bin/AdGuardHome \
+          /etc/init.d/adh-direct \
+          /etc/init.d/adh-proxy \
           /etc/config/lucky.daji \
           /etc/config/watchdog; do
           if ! grep -qx "$keep_path" "$keep_list"; then
@@ -321,7 +319,7 @@ jobs:
           exit 1
         fi
         echo "Checking required F2FS overlay bootstrap packages in $manifest..."
-        for pkg in kmod-fs-f2fs mkf2fs f2fsck; do
+        for pkg in kmod-fs-f2fs mkf2fs f2fsck openssh-sftp-server adguardhome-dual; do
           if ! grep -Eq "^${pkg}[[:space:]]" "$manifest"; then
             echo "::error::${pkg} is missing from firmware manifest; squashfs images may lose configuration after reboot."
             exit 1
@@ -331,14 +329,6 @@ jobs:
         cp -f ../../../../.config "${{ matrix.source }}-${{ matrix.branch }}.config" 2>/dev/null || true
         kernel_config="$(find ../../../../build_dir -path '*/linux-*/linux-*/.config' -type f -print -quit 2>/dev/null || true)"
         [ -n "$kernel_config" ] && cp -f "$kernel_config" "${{ matrix.source }}-${{ matrix.branch }}_kernel.config" || true
-        if [ "${{ matrix.source }}" = "immortalwrt-daed" ]; then
-          shopt -s nullglob
-          for file in *.img.gz *kernel.bin *rootfs.tar.gz; do
-            new="${file/immortalwrt/immortalwrt-daed}"
-            [ "$new" != "$file" ] || new="immortalwrt-daed-$file"
-            [ -e "$new" ] || mv "$file" "$new"
-          done
-        fi
         echo "Published firmware files:"
         find . -maxdepth 1 -type f -printf '%f\n' | sort
         echo "FIRMWARE=$PWD" >> $GITHUB_ENV
@@ -357,46 +347,28 @@ jobs:
       run: |
         echo "release_tag=${{ matrix.source }}-${{ matrix.branch }}-$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
         touch release.txt
-
-        if [ "${{ matrix.source }}" = "immortalwrt-daed" ]; then
-          echo "📦 **ImmortalWrt Daed x86_64 固件**" >> release.txt
-          echo "" >> release.txt
-          echo "🔹 **镜像名**: \`${{ matrix.source }}\`" >> release.txt
-          echo "🔹 **上游**: ImmortalWrt" >> release.txt
-          echo "🔹 **分支**: \`${{ matrix.branch }}\`" >> release.txt
-          echo "🔹 **Daed LuCI 源**: \`QiuSimons/luci-app-daed\`" >> release.txt
-          echo "🔹 **构建日期**: $(date '+%Y-%m-%d %H:%M:%S')" >> release.txt
-          echo "" >> release.txt
-          echo "### 默认配置" >> release.txt
-          echo "- IP: 192.168.50.1" >> release.txt
-          echo "- 用户名: root" >> release.txt
-          echo "- 密码: 无（首次登录需设置）" >> release.txt
-          echo "" >> release.txt
-          echo "### 已集成插件" >> release.txt
-          echo "- Daed / luci-app-daed" >> release.txt
-          echo "- Lucky" >> release.txt
-          echo "- Watchdog" >> release.txt
-          echo "- SQM" >> release.txt
-        else
-          echo "📦 **ImmortalWrt x86_64 固件**" >> release.txt
-          echo "" >> release.txt
-          echo "🔹 **上游**: ImmortalWrt" >> release.txt
-          echo "🔹 **分支**: \`${{ matrix.branch }}\`" >> release.txt
-          echo "🔹 **OpenClash**: \`vernesong/OpenClash\`" >> release.txt
-          echo "🔹 **构建日期**: $(date '+%Y-%m-%d %H:%M:%S')" >> release.txt
-          echo "" >> release.txt
-          echo "### 默认配置" >> release.txt
-          echo "- IP: 192.168.50.1" >> release.txt
-          echo "- 用户名: root" >> release.txt
-          echo "- 密码: 无（首次登录需设置）" >> release.txt
-          echo "" >> release.txt
-          echo "### 已集成插件" >> release.txt
-          echo "- OpenClash" >> release.txt
-          echo "- Lucky" >> release.txt
-          echo "- Watchdog" >> release.txt
-          echo "- SQM" >> release.txt
-        fi
-
+        echo "📦 **ImmortalWrt x86_64 固件**" >> release.txt
+        echo "" >> release.txt
+        echo "🔹 **镜像名**: \`${{ matrix.source }}\`" >> release.txt
+        echo "🔹 **上游**: ImmortalWrt" >> release.txt
+        echo "🔹 **分支**: \`${{ matrix.branch }}\`" >> release.txt
+        echo "🔹 **Daed LuCI 源**: \`QiuSimons/luci-app-daed\`" >> release.txt
+        echo "🔹 **ADH 运行时**: \`adguardhome-dual\`（双实例，不使用 luci-app-adguardhome）" >> release.txt
+        echo "🔹 **Golang**: \`my-openwrt-packages/golang\`，Go 官方 1.26.5 源码" >> release.txt
+        echo "🔹 **构建日期**: $(date '+%Y-%m-%d %H:%M:%S')" >> release.txt
+        echo "" >> release.txt
+        echo "### 默认配置" >> release.txt
+        echo "- IP: 192.168.50.1" >> release.txt
+        echo "- 用户名: root" >> release.txt
+        echo "- 密码: 无（首次登录需设置）" >> release.txt
+        echo "" >> release.txt
+        echo "### 已集成组件" >> release.txt
+        echo "- Daed / luci-app-daed" >> release.txt
+        echo "- 双 AdGuardHome 运行时：adh-direct / adh-proxy" >> release.txt
+        echo "- Lucky" >> release.txt
+        echo "- Watchdog" >> release.txt
+        echo "- SQM / UPnP" >> release.txt
+        echo "- openssh-sftp-server" >> release.txt
         echo "" >> release.txt
         echo "📖 [完整文档](https://github.com/hellomrli/my-ImmortalWrt/blob/main/README.md)" >> release.txt
         echo "" >> release.txt
