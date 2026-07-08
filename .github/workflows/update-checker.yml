@@ -35,7 +35,7 @@ jobs:
             repo_url: https://github.com/immortalwrt/immortalwrt
             branch: openwrt-25.12
           # 只监控两个正式 ImmortalWrt 上游分支。
-          # my-openwrt-packages 中的自定义包与 Go 官方覆盖包会在每次固件构建前拉取，
+          # my-openwrt-packages 中的自定义包与 sbwml Golang 覆盖包会在每次固件构建前拉取，
           # 不因插件包或 Golang 单独更新而触发整套固件编译。
 
     steps:

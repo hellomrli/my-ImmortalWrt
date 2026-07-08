@@ -31,19 +31,13 @@ if [ ! -d package/my-openwrt-packages ]; then
     git clone --depth 1 https://github.com/hellomrli/my-openwrt-packages.git package/my-openwrt-packages
 fi
 
-# 2. Golang 使用 my-openwrt-packages/golang 覆盖 feeds/packages/lang/golang。
-# 该覆盖包基于 OpenWrt 官方 golang 打包结构，Go 源码从 go.dev/dl / dl.google.com/go 官方源下载。
-if [ -d package/my-openwrt-packages/golang ]; then
-    rm -rf feeds/packages/lang/golang
-    cp -a package/my-openwrt-packages/golang feeds/packages/lang/golang
-    # Avoid duplicate golang package definitions from both package/ and feeds/ trees.
-    rm -rf package/my-openwrt-packages/golang
-    ./scripts/feeds update -i packages
-    ./scripts/feeds install -p packages -f golang golang-bootstrap golang1.26 || ./scripts/feeds install -a
-elif [ ! -d feeds/packages/lang/golang ]; then
-    echo "ERROR: feeds/packages/lang/golang is missing after feeds update" >&2
-    exit 1
-fi
+# 2. Golang 使用 sbwml/packages_lang_golang 26.x。
+# feeds install -a 已经安装官方 golang 入口；这里先把 my-openwrt-packages/golang
+# 替换为 sbwml，再移动到 feeds/packages/lang/golang，避免官方与第三方 golang 并存冲突。
+rm -rf package/my-openwrt-packages/golang
+git clone --depth 1 https://github.com/sbwml/packages_lang_golang -b 26.x package/my-openwrt-packages/golang
+rm -rf feeds/packages/lang/golang
+mv package/my-openwrt-packages/golang feeds/packages/lang/golang
 
 # 3. 生成自定义 fstab 配置文件，只保留 /boot 挂载，避免把只读 squashfs 根分区当作 extroot
 mkdir -p package/base-files/files/etc/config
@@ -93,26 +87,6 @@ APKREPOS
 sed -i '/^CONFIG_FEED_video=y/d' .config 2>/dev/null || true
 sed -i '/^# CONFIG_FEED_video is not set/d' .config 2>/dev/null || true
 echo '# CONFIG_FEED_video is not set' >> .config
-
-# Use the GitHub runner/system Go as the bootstrap toolchain for OpenWrt's Go package.
-# Building Go's full bootstrap chain (1.4 -> 1.17 -> 1.20 -> 1.22 -> 1.24) on every
-# firmware build is slow and fragile on modern CI images; OpenWrt still builds the
-# target host Go from source, but it can start from this external bootstrap root.
-if command -v go >/dev/null 2>&1; then
-    GO_BOOTSTRAP_ROOT="$(go env GOROOT 2>/dev/null || true)"
-    if [ -n "$GO_BOOTSTRAP_ROOT" ] && [ -x "$GO_BOOTSTRAP_ROOT/bin/go" ]; then
-        sed -i '/^CONFIG_GOLANG_EXTERNAL_BOOTSTRAP_ROOT=/d;/^CONFIG_GOLANG_BUILD_BOOTSTRAP=y$/d;/^# CONFIG_GOLANG_BUILD_BOOTSTRAP is not set$/d' .config 2>/dev/null || true
-        printf 'CONFIG_GOLANG_EXTERNAL_BOOTSTRAP_ROOT="%s"\n' "$GO_BOOTSTRAP_ROOT" >> .config
-        echo '# CONFIG_GOLANG_BUILD_BOOTSTRAP is not set' >> .config
-        echo "Using external Go bootstrap: $GO_BOOTSTRAP_ROOT"
-    else
-        echo "ERROR: go is present but GOROOT is not usable; cannot configure external Go bootstrap" >&2
-        exit 1
-    fi
-else
-    echo "ERROR: go command is missing; actions/setup-go should provide the external Go bootstrap" >&2
-    exit 1
-fi
 
 # Ensure x86 squashfs images can initialize and mount persistent F2FS overlay on first boot.
 # Without mkfs.f2fs, mount_root falls back to tmpfs overlay and all configuration is lost after reboot.

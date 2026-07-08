@@ -131,14 +131,14 @@ daed DNS routing
 
 ## Go 工具链
 
-构建时使用 [`my-openwrt-packages/golang`](https://github.com/hellomrli/my-openwrt-packages/tree/main/golang) 覆盖默认 feed 中的 Go 打包目录：
+构建时使用 [`sbwml/packages_lang_golang`](https://github.com/sbwml/packages_lang_golang) 的 `26.x` 分支覆盖默认 feed 中的 Go 打包目录：
 
-- 打包结构基于 OpenWrt 官方 `packages/lang/golang`。
-- Go 源码来自 Go 官方发布源：`go.dev/dl` / `dl.google.com/go`。
-- 当前固定版本：Go `1.26.5`。
-- CI 通过 `actions/setup-go` 提供外部 bootstrap GOROOT，避免每次从 Go 1.4 开始重建完整 bootstrap 链。
+- 构建脚本按 sbwml 说明，在 `./scripts/feeds install -a` 之后替换 `feeds/packages/lang/golang`。
+- 本地 `package/my-openwrt-packages/golang` 会先拉取为 sbwml 的 `26.x` 分支，再移动到 `feeds/packages/lang/golang`；最终只保留 feed 目录中的一份 Golang 包，避免官方与第三方 Golang 包并存冲突。
+- 当前跟随 `sbwml/packages_lang_golang` 的 `26.x` 分支。
+- 不再通过 `actions/setup-go` 强制外部 bootstrap，按 sbwml 包自身逻辑处理 Go bootstrap。
 
-这样避免 ImmortalWrt / OpenWrt feed 中 Go 版本滞后，同时也不依赖第三方 Golang 包仓库；OpenWrt 仍会从源码构建固件使用的 host Go，只是不再重复构建旧 bootstrap 工具链。
+这样避免 ImmortalWrt / OpenWrt feed 中 Go 版本滞后，同时恢复到之前验证过的 sbwml Golang 包来源。
 
 ## 配置保留与升级
 

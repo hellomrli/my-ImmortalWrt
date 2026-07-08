@@ -7,8 +7,8 @@
 ### Changed
 - 🔄 构建矩阵收敛为两个正式 ImmortalWrt 固件：`immortalwrt/master` 与 `immortalwrt/openwrt-25.12`；产物名称不再使用 `immortalwrt-daed` 后缀。
 - 🔄 固件内容统一按当前 `192.168.50.1` 路由器软件结构构建：Daed + 双 AdGuardHome + Lucky + Watchdog + SQM + UPnP + SFTP。
-- 🔄 Golang 改为 `my-openwrt-packages/golang` 覆盖包：基于 OpenWrt 官方打包结构，源码固定到 Go 官方 `go.dev/dl` / `dl.google.com/go` 的 Go 1.26.5。
-- 🔄 保留 ext4 rootfs 关闭策略，Release 仅发布 squashfs 相关镜像和 rootfs.tar.gz。
+- 🔄 Golang 按 `sbwml/packages_lang_golang` 说明改回 `26.x` 分支，直接覆盖 `feeds/packages/lang/golang`，并移除 CI 外部 bootstrap 强制配置。
+- 🔄 关闭 ext4 rootfs 与 ext4 文件系统包，Release 仅构建并发布 squashfs 相关镜像和 rootfs.tar.gz。
 
 ### Fixed
 - 🛠️ 强制启用并校验 F2FS overlay 所需的 `kmod-fs-f2fs`、`mkf2fs`、`f2fsck` 和 `f2fs-tools`，避免 squashfs 镜像重启后配置落到 tmpfs 而丢失。
