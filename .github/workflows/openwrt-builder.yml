@@ -148,12 +148,18 @@ jobs:
     - name: Cache OpenWrt DL
       uses: actions/cache@v4
       with:
-        path: openwrt/dl
-        key: ${{ runner.os }}-dl-${{ matrix.source }}-${{ matrix.branch }}-${{ hashFiles(matrix.config_file, matrix.diy_p1_sh, matrix.diy_p2_sh) }}
+        # Cache source archives, but never cache OpenWrt's Go module cache.
+        # The Go helper uses dl/go-mod-cache as GOMODCACHE; if a previous run
+        # saved a partially extracted module directory, daed fails with bogus
+        # missing internal packages such as protobuf/internal/... or lz4/internal/...
+        path: |
+          openwrt/dl
+          !openwrt/dl/go-mod-cache
+        key: ${{ runner.os }}-dl-nogomod-${{ matrix.source }}-${{ matrix.branch }}-${{ hashFiles(matrix.config_file, matrix.diy_p1_sh, matrix.diy_p2_sh) }}
         restore-keys: |
-          ${{ runner.os }}-dl-${{ matrix.source }}-${{ matrix.branch }}-
-          ${{ runner.os }}-dl-${{ matrix.source }}-
-          ${{ runner.os }}-dl-
+          ${{ runner.os }}-dl-nogomod-${{ matrix.source }}-${{ matrix.branch }}-
+          ${{ runner.os }}-dl-nogomod-${{ matrix.source }}-
+          ${{ runner.os }}-dl-nogomod-
 
     - name: Cache OpenWrt Build
       uses: actions/cache@v4
@@ -247,6 +253,9 @@ jobs:
           fi
         done
         make download -j8
+        # Do not carry a downloaded/restored Go module cache into package builds;
+        # package compilation will recreate it from a clean state.
+        rm -rf dl/go-mod-cache tmp/go-build
         find dl -size -1024c -exec ls -l {} \;
         find dl -size -1024c -exec rm -f {} \;
         find dl -size -1024c -print -quit | grep -q . && { echo "Small/invalid download files remain after cleanup"; exit 1; } || true
@@ -255,6 +264,11 @@ jobs:
       id: compile
       run: |
         cd openwrt
+        clean_go_caches() {
+          rm -rf dl/go-mod-cache tmp/go-build
+          rm -rf build_dir/target-*/daed-* build_dir/target-*/AdGuardHome-* build_dir/target-*/adguardhome-*
+        }
+
         echo -e "$(nproc) thread compile"
         echo "===================="
         echo "Build started at: $(date '+%Y-%m-%d %H:%M:%S')"
@@ -262,15 +276,25 @@ jobs:
         echo "Branch: ${{ matrix.branch }}"
         echo "===================="
 
+        clean_go_caches
         if make -j$(nproc); then
           echo "✅ Multi-thread build successful"
-        elif make -j1 V=s; then
-          echo "⚠️ Single-thread build successful (multi-thread failed)"
-        elif make clean && make -j1 V=s; then
-          echo "⚠️ Build successful after clean (previous attempts failed)"
         else
-          echo "❌ All build attempts failed"
-          exit 1
+          echo "⚠️ Multi-thread build failed; retrying single-thread after cleaning Go caches"
+          clean_go_caches
+          if make -j1 V=s; then
+            echo "⚠️ Single-thread build successful (multi-thread failed)"
+          else
+            echo "⚠️ Single-thread build failed; running make clean and retrying after cleaning Go caches"
+            make clean
+            clean_go_caches
+            if make -j1 V=s; then
+              echo "⚠️ Build successful after clean (previous attempts failed)"
+            else
+              echo "❌ All build attempts failed"
+              exit 1
+            fi
+          fi
         fi
 
         echo "===================="
