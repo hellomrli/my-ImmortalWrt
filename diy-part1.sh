@@ -18,6 +18,6 @@
 #echo 'src-git kenzo https://github.com/kenzok8/openwrt-packages' >>feeds.conf.default
 #echo 'src-git small https://github.com/kenzok8/small' >>feeds.conf.default
 #echo 'src-git passwall https://github.com/xiaorouji/openwrt-passwall' >>feeds.conf.default
-# Custom third-party packages are cloned in diy-part2.sh / diy-part2-daed.sh
-# from https://github.com/hellomrli/my-openwrt-packages.
+# Third-party packages are cloned directly from their upstream repositories
+# in diy-part2.sh / diy-part2-daed.sh.
 

@@ -71,7 +71,7 @@
 ### DNS / 代理
 
 - `daed`
-- `adguardhome-dual`
+- `adguardhome`（官方包，预置 `adh-direct` / `adh-proxy` 双实例配置）
 - `dnsmasq-full`
 - `daed-geoip` / `daed-geosite`
 - `v2ray-geoip` / `v2ray-geosite`
@@ -115,30 +115,29 @@ daed DNS routing
 | ADH-proxy Web | `192.168.50.1` | 50081 | 国外实例管理 |
 | daed Web | `0.0.0.0` / `::` | 2023 | Daed 管理 |
 
-`adguardhome-dual` 来自 [`hellomrli/my-openwrt-packages`](https://github.com/hellomrli/my-openwrt-packages)，安装两个 procd 服务：
+固件使用 ImmortalWrt 官方 `packages/net/adguardhome` 提供 `/usr/bin/AdGuardHome` 二进制，并通过 overlay 预置两个 procd 服务和两个 symlink（用于 daed 按进程名区分 direct/proxy）：
 
 - `/etc/init.d/adh-direct`
 - `/etc/init.d/adh-proxy`
+- `/usr/bin/AdGuardHome-direct -> /usr/bin/AdGuardHome`
+- `/usr/bin/AdGuardHome-proxy -> /usr/bin/AdGuardHome`
 
-以及两份配置：
+以及两份独立配置：
 
 - `/etc/AdGuardHome-direct.yaml`
 - `/etc/AdGuardHome-proxy.yaml`
 
-默认模板不会提交现有路由器的 ADH Web 登录密码哈希；全新刷机后请自行设置 Web 登录信息，保留配置升级时则会通过 sysupgrade 继续保留现有 YAML。
+官方单实例 `/etc/init.d/adguardhome` 会在首次启动时被禁用，避免与双实例端口冲突。默认模板不会提交现有路由器的 ADH Web 登录密码哈希；全新刷机后请自行设置 Web 登录信息，保留配置升级时则会通过 sysupgrade 继续保留现有 YAML。
 
 更详细的 DNS 方案记录见：[`docs/dnsmasq-daed-dual-adh.md`](docs/dnsmasq-daed-dual-adh.md)。
 
 ## Go 工具链
 
-构建时使用 [`sbwml/packages_lang_golang`](https://github.com/sbwml/packages_lang_golang) 的 `26.x` 分支覆盖默认 feed 中的 Go 打包目录：
+构建时直接使用 ImmortalWrt 官方 `packages/lang/golang`：
 
-- 构建脚本按 sbwml 说明，在 `./scripts/feeds install -a` 之后替换 `feeds/packages/lang/golang`。
-- 本地 `package/my-openwrt-packages/golang` 会先拉取为 sbwml 的 `26.x` 分支，再移动到 `feeds/packages/lang/golang`；最终只保留 feed 目录中的一份 Golang 包，避免官方与第三方 Golang 包并存冲突。
-- 当前跟随 `sbwml/packages_lang_golang` 的 `26.x` 分支。
-- 不再通过 `actions/setup-go` 强制外部 bootstrap，按 sbwml 包自身逻辑处理 Go bootstrap。
-
-这样避免 ImmortalWrt / OpenWrt feed 中 Go 版本滞后，同时恢复到之前验证过的 sbwml Golang 包来源。
+- 已核对 `immortalwrt/packages` 的 `master` 与 `openwrt-25.12` 分支均默认 `GO_DEFAULT_VERSION:=1.26`，当前为 Go 1.26.4。
+- 构建脚本不再覆盖 `feeds/packages/lang/golang`，避免第三方 Go helper 与官方 `daed` 包组合不一致。
+- 不再通过 `actions/setup-go` 强制外部 bootstrap，按官方 Golang 包自身逻辑处理 Go bootstrap。
 
 ## 配置保留与升级
 
@@ -149,9 +148,6 @@ daed DNS routing
 /etc/daed
 /etc/AdGuardHome-direct.yaml
 /etc/AdGuardHome-proxy.yaml
-/usr/bin/AdGuardHome
-/etc/init.d/adh-direct
-/etc/init.d/adh-proxy
 /etc/config/lucky
 /etc/config/lucky.daji
 /etc/config/watchdog
@@ -182,4 +178,5 @@ mount | grep ' /overlay '
 - [AdGuardHome](https://github.com/AdguardTeam/AdGuardHome)
 - [Go](https://go.dev/dl/)
 - [OpenWrt packages](https://github.com/openwrt/packages)
-- [hellomrli/my-openwrt-packages](https://github.com/hellomrli/my-openwrt-packages)
+- [gdy666/luci-app-lucky](https://github.com/gdy666/luci-app-lucky)
+- [sirpdboy/luci-app-watchdog](https://github.com/sirpdboy/luci-app-watchdog)

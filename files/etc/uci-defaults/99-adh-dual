@@ -1,0 +1,10 @@
+#!/bin/sh
+# Use the official adguardhome package only as the binary provider.
+# Disable its default single-instance service and enable our two explicit instances.
+/etc/init.d/adguardhome stop >/dev/null 2>&1 || true
+/etc/init.d/adguardhome disable >/dev/null 2>&1 || true
+/etc/init.d/adh-direct enable >/dev/null 2>&1 || true
+/etc/init.d/adh-proxy enable >/dev/null 2>&1 || true
+/etc/init.d/adh-direct start >/dev/null 2>&1 || true
+/etc/init.d/adh-proxy start >/dev/null 2>&1 || true
+exit 0

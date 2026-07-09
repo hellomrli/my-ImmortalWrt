@@ -21,23 +21,31 @@ sed -i 's/192.168.1.1/192.168.50.1/g' package/base-files/files/bin/config_genera
 # Modify hostname
 #sed -i 's/OpenWrt/P3TERX-Router/g' package/base-files/files/bin/config_generate
 
-# 1. 拉取个人 OpenWrt 插件库（Daed / 双 ADH / Lucky / Watchdog）
+# 1. 拉取第三方插件源头仓库（不再克隆个人聚合包仓库）。
 rm -rf \
-    package/my-openwrt-packages \
     package/lucky \
     package/watchdog \
-    package/dae
-if [ ! -d package/my-openwrt-packages ]; then
-    git clone --depth 1 https://github.com/hellomrli/my-openwrt-packages.git package/my-openwrt-packages
-fi
+    package/dae \
+    package/luci-app-daed
 
-# 2. Golang 使用 sbwml/packages_lang_golang 26.x。
-# feeds install -a 已经安装官方 golang 入口；这里先把 my-openwrt-packages/golang
-# 替换为 sbwml，再移动到 feeds/packages/lang/golang，避免官方与第三方 golang 并存冲突。
-rm -rf package/my-openwrt-packages/golang
-git clone --depth 1 https://github.com/sbwml/packages_lang_golang -b 26.x package/my-openwrt-packages/golang
-rm -rf feeds/packages/lang/golang
-mv package/my-openwrt-packages/golang feeds/packages/lang/golang
+git clone --depth 1 https://github.com/gdy666/luci-app-lucky.git package/lucky
+git clone --depth 1 https://github.com/sirpdboy/luci-app-watchdog.git package/watchdog
+
+# QiuSimons/luci-app-daed 同仓库还包含 daed 后端包；这里只取 LuCI，
+# daed 后端继续使用 ImmortalWrt 官方 feeds/packages/net/daed，避免重复包定义。
+rm -rf /tmp/luci-app-daed-src
+git clone --depth 1 --filter=blob:none --sparse https://github.com/QiuSimons/luci-app-daed.git /tmp/luci-app-daed-src
+git -C /tmp/luci-app-daed-src sparse-checkout set luci-app-daed
+mv /tmp/luci-app-daed-src/luci-app-daed package/luci-app-daed
+rm -rf /tmp/luci-app-daed-src
+
+# 2. 使用 ImmortalWrt 官方 packages feed 自带的 Golang。
+# 官方 master / openwrt-25.12 的 packages/lang/golang 已默认 Go 1.26.x。
+# 不额外覆盖官方 Golang，以提高与官方 daed/Go helper 的兼容性。
+if [ ! -d feeds/packages/lang/golang ]; then
+    echo "ERROR: feeds/packages/lang/golang is missing after feeds install" >&2
+    exit 1
+fi
 
 # 3. 生成自定义 fstab 配置文件，只保留 /boot 挂载，避免把只读 squashfs 根分区当作 extroot
 mkdir -p package/base-files/files/etc/config
@@ -65,9 +73,6 @@ cat > package/base-files/files/etc/sysupgrade.conf << 'SYSUPGRADE'
 /etc/daed
 /etc/AdGuardHome-direct.yaml
 /etc/AdGuardHome-proxy.yaml
-/usr/bin/AdGuardHome
-/etc/init.d/adh-direct
-/etc/init.d/adh-proxy
 /etc/config/lucky
 /etc/config/lucky.daji
 /etc/config/watchdog
@@ -102,7 +107,7 @@ for symbol in \
     CONFIG_PACKAGE_f2fsck \
     CONFIG_PACKAGE_f2fs-tools \
     CONFIG_PACKAGE_openssh-sftp-server \
-    CONFIG_PACKAGE_adguardhome-dual; do
+    CONFIG_PACKAGE_adguardhome; do
     ensure_config_enabled "$symbol"
 done
 

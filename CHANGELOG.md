@@ -7,15 +7,16 @@
 ### Changed
 - 🔄 构建矩阵收敛为两个正式 ImmortalWrt 固件：`immortalwrt/master` 与 `immortalwrt/openwrt-25.12`；产物名称不再使用 `immortalwrt-daed` 后缀。
 - 🔄 固件内容统一按当前 `192.168.50.1` 路由器软件结构构建：Daed + 双 AdGuardHome + Lucky + Watchdog + SQM + UPnP + SFTP。
-- 🔄 Golang 按 `sbwml/packages_lang_golang` 说明改回 `26.x` 分支，直接覆盖 `feeds/packages/lang/golang`，并移除 CI 外部 bootstrap 强制配置。
+- 🔄 第三方插件不再从个人聚合仓库拉取：Lucky、Watchdog、luci-app-daed 改为直接从各自上游仓库克隆；Daed 后端、Golang、AdGuardHome 使用 ImmortalWrt 官方 packages feed。
+- 🔄 Golang 改为直接使用 ImmortalWrt 官方 `packages/lang/golang`（官方 master/openwrt-25.12 已为 Go 1.26.x），不再用第三方 Golang 覆盖官方 feed。
 - 🔄 关闭 ext4 rootfs 与 ext4 文件系统包，Release 仅构建并发布 squashfs 相关镜像和 rootfs.tar.gz。
 
 ### Fixed
 - 🛠️ 强制启用并校验 F2FS overlay 所需的 `kmod-fs-f2fs`、`mkf2fs`、`f2fsck` 和 `f2fs-tools`，避免 squashfs 镜像重启后配置落到 tmpfs 而丢失。
-- 🛡️ 预置 `/etc/sysupgrade.conf`，额外保留 Daed、双 AdGuardHome、Lucky、Watchdog 等运行时配置与 ADH 二进制目录。
+- 🛡️ 预置 `/etc/sysupgrade.conf`，额外保留 Daed、双 AdGuardHome、Lucky、Watchdog 等运行时配置；ADH 二进制由官方 `adguardhome` 包提供，不再备份二进制。
 
 ### Added
-- ✅ 新增 `adguardhome-dual` 运行时包：安装 Go 官方 ADH Core v0.107.77，并提供 `adh-direct` / `adh-proxy` 两个 procd 服务。
+- ✅ 改用官方 `adguardhome` 包提供 ADH Core，并通过 overlay 提供 `adh-direct` / `adh-proxy` 双实例服务与配置。
 - ✅ 预装 `openssh-sftp-server`，方便后续 SFTP/SCP 传递文件。
 - ✅ Release 产物附带最终 `.config` 和 kernel `.config`，便于追踪实际构建配置。
 

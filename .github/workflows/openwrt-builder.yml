@@ -223,7 +223,7 @@ jobs:
           CONFIG_PACKAGE_f2fsck \
           CONFIG_PACKAGE_f2fs-tools \
           CONFIG_PACKAGE_openssh-sftp-server \
-          CONFIG_PACKAGE_adguardhome-dual; do
+          CONFIG_PACKAGE_adguardhome; do
           if ! grep -qx "${symbol}=y" .config; then
             echo "::error::${symbol} is not enabled after make defconfig; squashfs images may lose configuration after reboot."
             exit 1
@@ -239,9 +239,6 @@ jobs:
           /etc/daed \
           /etc/AdGuardHome-direct.yaml \
           /etc/AdGuardHome-proxy.yaml \
-          /usr/bin/AdGuardHome \
-          /etc/init.d/adh-direct \
-          /etc/init.d/adh-proxy \
           /etc/config/lucky.daji \
           /etc/config/watchdog; do
           if ! grep -qx "$keep_path" "$keep_list"; then
@@ -319,7 +316,7 @@ jobs:
           exit 1
         fi
         echo "Checking required F2FS overlay bootstrap packages in $manifest..."
-        for pkg in kmod-fs-f2fs mkf2fs f2fsck openssh-sftp-server adguardhome-dual; do
+        for pkg in kmod-fs-f2fs mkf2fs f2fsck openssh-sftp-server adguardhome; do
           if ! grep -Eq "^${pkg}[[:space:]]" "$manifest"; then
             echo "::error::${pkg} is missing from firmware manifest; squashfs images may lose configuration after reboot."
             exit 1
@@ -353,8 +350,8 @@ jobs:
         echo "🔹 **上游**: ImmortalWrt" >> release.txt
         echo "🔹 **分支**: \`${{ matrix.branch }}\`" >> release.txt
         echo "🔹 **Daed LuCI 源**: \`QiuSimons/luci-app-daed\`" >> release.txt
-        echo "🔹 **ADH 运行时**: \`adguardhome-dual\`（双实例，不使用 luci-app-adguardhome）" >> release.txt
-        echo "🔹 **Golang**: \`sbwml/packages_lang_golang\` 26.x 分支" >> release.txt
+        echo "🔹 **ADH 运行时**: \`adguardhome\`（双实例，不使用 luci-app-adguardhome）" >> release.txt
+        echo "🔹 **Golang**: ImmortalWrt 官方 \`packages/lang/golang\`（Go 1.26.x）" >> release.txt
         echo "🔹 **构建日期**: $(date '+%Y-%m-%d %H:%M:%S')" >> release.txt
         echo "" >> release.txt
         echo "### 默认配置" >> release.txt
@@ -364,7 +361,7 @@ jobs:
         echo "" >> release.txt
         echo "### 已集成组件" >> release.txt
         echo "- Daed / luci-app-daed" >> release.txt
-        echo "- 双 AdGuardHome 运行时：adh-direct / adh-proxy" >> release.txt
+        echo "- 官方 AdGuardHome + 双实例配置：adh-direct / adh-proxy" >> release.txt
         echo "- Lucky" >> release.txt
         echo "- Watchdog" >> release.txt
         echo "- SQM / UPnP" >> release.txt

@@ -35,8 +35,9 @@ jobs:
             repo_url: https://github.com/immortalwrt/immortalwrt
             branch: openwrt-25.12
           # 只监控两个正式 ImmortalWrt 上游分支。
-          # my-openwrt-packages 中的自定义包与 sbwml Golang 覆盖包会在每次固件构建前拉取，
-          # 不因插件包或 Golang 单独更新而触发整套固件编译。
+          # Lucky / Watchdog / luci-app-daed 等第三方插件会在每次固件构建前
+          # 直接从各自上游仓库拉取；Golang / Daed / AdGuardHome 使用 ImmortalWrt 官方 feeds。
+          # 这里不把这些上游作为自动触发源，避免第三方仓库频繁变动导致无意义构建。
 
     steps:
 

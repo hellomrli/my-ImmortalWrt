@@ -29,12 +29,10 @@ daed DNS routing
 
 1. 去掉 daed DNS 的 `ipversion_prefer: 4`，避免近似“只用 IPv4”。
 2. 去掉全局 `l4proto(udp) && dport(443) -> block`，避免影响手机 App 的 QUIC/HTTP3。
-3. 两个 ADH 使用不同二进制名：
-   - `/usr/bin/AdGuardHome/AdGuardHome-direct`
-   - `/usr/bin/AdGuardHome/AdGuardHome-proxy`
-4. daed routing 只让 `AdGuardHome-direct` 全直连，避免 ISP DNS 查询被 daed 再次送回 ADH 形成环路。
-5. `AdGuardHome-proxy` 不直连；其 DoH HTTPS 连接按 daed 规则走代理。
-6. `AdGuardHome-proxy` 的 DoH 上游使用 IP-literal DoH，减少 bootstrap 自引用问题。
+3. 两个 ADH 实例共用官方 `adguardhome` 包提供的 `/usr/bin/AdGuardHome` 二进制；固件只额外提供 `/usr/bin/AdGuardHome-direct` 和 `/usr/bin/AdGuardHome-proxy` 两个 symlink，用于保留 daed `pname(...)` 分流能力。
+4. daed routing 只让 `pname(AdGuardHome-direct)` 全直连，避免 ISP DNS 查询被 daed 再次送回 ADH 形成环路。
+5. `adh-proxy` 对应的 DoH HTTPS 连接不直连；按 daed 规则走代理。
+6. `adh-proxy` 的 DoH 上游使用 IP-literal DoH，减少 bootstrap 自引用问题。
 
 ## ADH-direct
 
@@ -118,9 +116,6 @@ tail -n 200 /var/log/daed/daed.log | grep -E '127.0.0.1:5053|AdGuardHome-prox|Ad
 ```text
 /etc/AdGuardHome-direct.yaml
 /etc/AdGuardHome-proxy.yaml
-/usr/bin/AdGuardHome
-/etc/init.d/adh-direct
-/etc/init.d/adh-proxy
 /etc/daed
 /etc/config/daed
 /etc/config/dhcp
