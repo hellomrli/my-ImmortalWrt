@@ -1,7 +1,10 @@
 # Project-owned sysupgrade retention rules.
 # Keep user additions in /etc/sysupgrade.conf; firmware updates replace this file
 # from /rom so protection fixes are not hidden by an older overlay copy.
+/etc/config/dae
 /etc/config/daed
+/etc/config/daede
+/etc/dae
 /etc/daed
 /etc/AdGuardHome-direct.yaml
 /etc/AdGuardHome-proxy.yaml

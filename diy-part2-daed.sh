@@ -26,48 +26,59 @@ rm -rf \
     package/lucky \
     package/watchdog \
     package/dae \
-    package/luci-app-daed
+    package/luci-app-daed \
+    package/luci-app-daede
 
 git clone --depth 1 https://github.com/gdy666/luci-app-lucky.git package/lucky
 git clone --depth 1 https://github.com/sirpdboy/luci-app-watchdog.git package/watchdog
 
-# QiuSimons/luci-app-daed 同时提供 daed 后端和 LuCI。必须移除 feeds install
-# 生成的官方同名入口，否则 OpenWrt 的包扫描顺序可能静默选回官方旧版本。
+# kenzok8/openwrt-daede 同时提供 dae、daed 和 luci-app-daede。移除 feeds
+# 生成的所有潜在同名/旧版入口，确保包扫描只能选择 kenzok8 的定义。
 rm -rf \
+    package/feeds/packages/dae \
     package/feeds/packages/daed \
-    package/feeds/luci/luci-app-daed
+    package/feeds/luci/luci-app-daed \
+    package/feeds/luci/luci-app-daede
 
-git clone --depth 1 --branch kix \
-    https://github.com/QiuSimons/luci-app-daed.git package/dae
+git clone --depth 1 \
+    https://github.com/kenzok8/openwrt-daede.git package/dae
 
-# 构建前立即验证来源和版本元数据；任一文件缺失都拒绝继续，避免回退。
-qiu_daed_makefile="package/dae/daed/Makefile"
-qiu_luci_makefile="package/dae/luci-app-daed/Makefile"
-for makefile in "$qiu_daed_makefile" "$qiu_luci_makefile"; do
+# 构建前立即验证三包来源和版本元数据；任一文件缺失都拒绝继续，避免回退。
+kenzok_dae_makefile="package/dae/dae/Makefile"
+kenzok_daed_makefile="package/dae/daed/Makefile"
+kenzok_luci_makefile="package/dae/luci-app-daede/Makefile"
+for makefile in "$kenzok_dae_makefile" "$kenzok_daed_makefile" "$kenzok_luci_makefile"; do
     if [ ! -s "$makefile" ]; then
-        echo "ERROR: QiuSimons package Makefile is missing: $makefile" >&2
+        echo "ERROR: kenzok8 package Makefile is missing: $makefile" >&2
         exit 1
     fi
 done
-if ! grep -q '^PKG_SOURCE_URL:=https://github.com/daeuniverse/daed.git$' "$qiu_daed_makefile" ||
-   ! grep -q '^CORE_VERSION:=core-' "$qiu_daed_makefile"; then
-    echo "ERROR: package/dae/daed is not the expected QiuSimons daed package" >&2
+if [ "$(git -C package/dae remote get-url origin)" != "https://github.com/kenzok8/openwrt-daede.git" ] ||
+   ! grep -q '^PKG_NAME:=dae$' "$kenzok_dae_makefile" ||
+   ! grep -q '^PKG_NAME:=daed$' "$kenzok_daed_makefile" ||
+   ! grep -q '^PKG_NAME:=luci-app-daede$' "$kenzok_luci_makefile"; then
+    echo "ERROR: package/dae is not the expected kenzok8/openwrt-daede source" >&2
     exit 1
 fi
-for official_entry in package/feeds/packages/daed package/feeds/luci/luci-app-daed; do
+for official_entry in \
+    package/feeds/packages/dae \
+    package/feeds/packages/daed \
+    package/feeds/luci/luci-app-daed \
+    package/feeds/luci/luci-app-daede; do
     if [ -e "$official_entry" ] || [ -L "$official_entry" ]; then
-        echo "ERROR: official daed package entry still exists: $official_entry" >&2
+        echo "ERROR: official/conflicting daede package entry still exists: $official_entry" >&2
         exit 1
     fi
 done
 
-echo "Using QiuSimons daed packages:"
-grep -E '^(PKG_VERSION|DAED_VERSION|WING_VERSION|CORE_VERSION):=' "$qiu_daed_makefile"
-grep -E '^(PKG_VERSION|PKG_RELEASE):=' "$qiu_luci_makefile"
+echo "Using kenzok8/openwrt-daede packages:"
+grep -E '^(PKG_NAME|PKG_VERSION|PKG_RELEASE):=' "$kenzok_dae_makefile"
+grep -E '^(PKG_NAME|PKG_VERSION|PKG_RELEASE):=' "$kenzok_daed_makefile"
+grep -E '^(PKG_NAME|PKG_VERSION|PKG_RELEASE):=' "$kenzok_luci_makefile"
 
 # 2. 使用 ImmortalWrt 官方 packages feed 自带的 Golang。
 # 官方 master / openwrt-25.12 的 packages/lang/golang 已默认 Go 1.26.x。
-# 不额外覆盖官方 Golang，以保持 QiuSimons daed 与 OpenWrt Go helper 的兼容性。
+# 不额外覆盖官方 Golang，以保持 kenzok8 dae/daed 与 OpenWrt Go helper 的兼容性。
 if [ ! -d feeds/packages/lang/golang ]; then
     echo "ERROR: feeds/packages/lang/golang is missing after feeds install" >&2
     exit 1
@@ -141,5 +152,5 @@ cat > package/base-files/files/etc/openwrt_release_custom << RELEASE
 BUILD_DATE="$(date '+%Y%m%d%H%M')"
 BUILD_REPO="hellomrli/my-ImmortalWrt"
 BUILD_DESC="ImmortalWrt x86_64 for PVE, default IP 192.168.50.1"
-BUILD_PLUGINS="Daed+Dual-AdGuardHome+Lucky+Watchdog+SFTP"
+BUILD_PLUGINS="Dae+Daed+Daede+Dual-AdGuardHome+Lucky+Watchdog+SFTP"
 RELEASE

@@ -65,7 +65,10 @@ sysupgrade -c -l | sed 's#^/##' > "$list_file"
 
 missing=0
 for path in \
+	/etc/config/dae \
 	/etc/config/daed \
+	/etc/config/daede \
+	/etc/dae \
 	/etc/daed \
 	/etc/AdGuardHome-direct.yaml \
 	/etc/AdGuardHome-proxy.yaml \
@@ -100,7 +103,10 @@ fi
 
 missing=0
 for path in \
+	/etc/config/dae \
 	/etc/config/daed \
+	/etc/config/daede \
+	/etc/dae \
 	/etc/daed \
 	/etc/AdGuardHome-direct.yaml \
 	/etc/AdGuardHome-proxy.yaml \

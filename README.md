@@ -8,7 +8,7 @@
 
 </div>
 
-这是一个面向 x86_64 软路由 / PVE / QEMU 的 ImmortalWrt 固件构建仓库。当前固件按实际路由器 `192.168.50.1` 的最终软件结构整理，重点是 **Daed 透明代理 + dnsmasq + 双 AdGuardHome DNS 分流**，并保留常用管理、QoS、UPnP、SFTP 和虚拟化组件。
+这是一个面向 x86_64 软路由 / PVE / QEMU 的 ImmortalWrt 固件构建仓库。当前固件按实际路由器 `192.168.50.1` 的最终软件结构整理，重点是 **dae / daed 双后端透明代理 + dnsmasq + 双 AdGuardHome DNS 分流**，并保留常用管理、QoS、UPnP、SFTP 和虚拟化组件。
 
 固件发布名称保持正式的 `immortalwrt`，不再使用额外的 `-daed` 后缀。目前仅保留两个构建分支：
 
@@ -45,7 +45,7 @@
 
 - 基于 ImmortalWrt x86_64，适合 PVE、QEMU 和常规 x86 软路由。
 - 默认 LAN IP 改为 `192.168.50.1`，避免和常见上级路由 `192.168.1.1` 冲突。
-- 统一使用 Daed 透明代理方案，不再构建 OpenClash 变体。
+- 同时内置 `dae` 与 `daed`，通过 `luci-app-daede` 统一管理和切换后端，不再构建 OpenClash 变体。
 - 内置 `dnsmasq + daed + 双 AdGuardHome` DNS 分流结构。
 - 双 AdGuardHome 以独立运行时服务形式安装，不使用 `luci-app-adguardhome` 管理。
 - 预装 `openssh-sftp-server`，方便后续通过 SFTP / SCP 传递文件。
@@ -59,7 +59,7 @@
 
 ### LuCI / 管理
 
-- `luci-app-daed`
+- `luci-app-daede`（统一管理 `dae` / `daed` 双后端）
 - `luci-app-firewall`
 - `luci-app-lucky`
 - `luci-app-package-manager`
@@ -70,7 +70,8 @@
 
 ### DNS / 代理
 
-- `daed`（后端、dae-wing 与 dae-core 均由 `QiuSimons/luci-app-daed` 构建定义提供）
+- `dae`（独立核心后端，来自 `kenzok8/openwrt-daede`）
+- `daed`（Dashboard 整合后端，来自 `kenzok8/openwrt-daede`）
 - `adguardhome`（官方包，预置 `adh-direct` / `adh-proxy` 双实例配置）
 - `dnsmasq-full`
 - `v2ray-geoip` / `v2ray-geosite`
@@ -135,7 +136,7 @@ daed DNS routing
 构建时直接使用 ImmortalWrt 官方 `packages/lang/golang`：
 
 - 已核对 `immortalwrt/packages` 的 `master` 与 `openwrt-25.12` 分支均默认 `GO_DEFAULT_VERSION:=1.26`，当前为 Go 1.26.4。
-- 构建脚本不再覆盖 `feeds/packages/lang/golang`，由 ImmortalWrt 官方 Go helper 编译 QiuSimons 的 `daed` 包。
+- 构建脚本不再覆盖 `feeds/packages/lang/golang`，由 ImmortalWrt 官方 Go helper 编译 kenzok8 的 `dae` 与 `daed` 包。
 - 不再通过 `actions/setup-go` 强制外部 bootstrap，按官方 Golang 包自身逻辑处理 Go bootstrap。
 
 ## 配置保留与升级
@@ -149,7 +150,10 @@ daed DNS routing
 项目规则包含：
 
 ```text
+/etc/config/dae
 /etc/config/daed
+/etc/config/daede
+/etc/dae
 /etc/daed
 /etc/AdGuardHome-direct.yaml
 /etc/AdGuardHome-proxy.yaml
@@ -231,7 +235,7 @@ uci show dhcp >/dev/null
 
 - [ImmortalWrt](https://github.com/immortalwrt/immortalwrt)
 - [P3TERX/Actions-OpenWrt](https://github.com/P3TERX/Actions-OpenWrt)
-- [QiuSimons/luci-app-daed](https://github.com/QiuSimons/luci-app-daed)
+- [kenzok8/openwrt-daede](https://github.com/kenzok8/openwrt-daede)
 - [AdGuardHome](https://github.com/AdguardTeam/AdGuardHome)
 - [Go](https://go.dev/dl/)
 - [OpenWrt packages](https://github.com/openwrt/packages)

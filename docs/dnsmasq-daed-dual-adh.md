@@ -117,8 +117,11 @@ tail -n 200 /var/log/daed/daed.log | grep -E '127.0.0.1:5053|AdGuardHome-prox|Ad
 ```text
 /etc/AdGuardHome-direct.yaml
 /etc/AdGuardHome-proxy.yaml
-/etc/daed
+/etc/config/dae
 /etc/config/daed
+/etc/config/daede
+/etc/dae
+/etc/daed
 /etc/config/dhcp
 ```
 

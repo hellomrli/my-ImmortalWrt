@@ -222,33 +222,44 @@ jobs:
       run: |
         cd openwrt
         make defconfig
-        echo "Checking QiuSimons daed package selection..."
-        qiu_daed_makefile="package/dae/daed/Makefile"
-        qiu_luci_makefile="package/dae/luci-app-daed/Makefile"
-        for makefile in "$qiu_daed_makefile" "$qiu_luci_makefile"; do
+        echo "Checking kenzok8/openwrt-daede package selection..."
+        kenzok_dae_makefile="package/dae/dae/Makefile"
+        kenzok_daed_makefile="package/dae/daed/Makefile"
+        kenzok_luci_makefile="package/dae/luci-app-daede/Makefile"
+        for makefile in "$kenzok_dae_makefile" "$kenzok_daed_makefile" "$kenzok_luci_makefile"; do
           if [ ! -s "$makefile" ]; then
-            echo "::error::QiuSimons package Makefile is missing: $makefile"
+            echo "::error::kenzok8 package Makefile is missing: $makefile"
             exit 1
           fi
         done
-        for official_entry in package/feeds/packages/daed package/feeds/luci/luci-app-daed; do
-          if [ -e "$official_entry" ] || [ -L "$official_entry" ]; then
-            echo "::error::Official daed package entry still exists and may override QiuSimons: $official_entry"
+        for conflicting_entry in \
+          package/feeds/packages/dae \
+          package/feeds/packages/daed \
+          package/feeds/luci/luci-app-daed \
+          package/feeds/luci/luci-app-daede; do
+          if [ -e "$conflicting_entry" ] || [ -L "$conflicting_entry" ]; then
+            echo "::error::Official/conflicting daede package entry still exists: $conflicting_entry"
             exit 1
           fi
         done
-        for symbol in CONFIG_PACKAGE_daed CONFIG_PACKAGE_luci-app-daed; do
+        for symbol in \
+          CONFIG_PACKAGE_dae \
+          CONFIG_PACKAGE_daed \
+          CONFIG_PACKAGE_luci-app-daede \
+          CONFIG_PACKAGE_luci-app-daede_daed; do
           if ! grep -qx "${symbol}=y" .config; then
             echo "::error::${symbol} is not enabled after make defconfig."
             exit 1
           fi
         done
-        if grep -Eq '^CONFIG_PACKAGE_daed-(geoip|geosite)=y$' .config; then
-          echo "::error::Official daed-geoip/daed-geosite split packages are still enabled."
+        if grep -Eq '^CONFIG_PACKAGE_(luci-app-daed|daed-(geoip|geosite))=y$' .config; then
+          echo "::error::Old official daed/LuCI packages are still enabled."
+          grep -E '^CONFIG_PACKAGE_(luci-app-daed|daed-(geoip|geosite))=y$' .config
           exit 1
         fi
-        grep -E '^(PKG_VERSION|DAED_VERSION|WING_VERSION|CORE_VERSION):=' "$qiu_daed_makefile"
-        grep -E '^(PKG_VERSION|PKG_RELEASE):=' "$qiu_luci_makefile"
+        grep -E '^(PKG_NAME|PKG_VERSION|PKG_RELEASE):=' "$kenzok_dae_makefile"
+        grep -E '^(PKG_NAME|PKG_VERSION|PKG_RELEASE):=' "$kenzok_daed_makefile"
+        grep -E '^(PKG_NAME|PKG_VERSION|PKG_RELEASE):=' "$kenzok_luci_makefile"
         echo "Checking required F2FS overlay bootstrap packages in final .config..."
         for symbol in \
           CONFIG_PACKAGE_kmod-fs-f2fs \
@@ -274,7 +285,10 @@ jobs:
           exit 1
         fi
         for keep_path in \
+          /etc/config/dae \
           /etc/config/daed \
+          /etc/config/daede \
+          /etc/dae \
           /etc/daed \
           /etc/AdGuardHome-direct.yaml \
           /etc/AdGuardHome-proxy.yaml \
@@ -380,22 +394,25 @@ jobs:
             exit 1
           fi
         done
-        echo "Checking QiuSimons daed versions in firmware manifest..."
-        qiu_daed_version="$(sed -n 's/^PKG_VERSION:=//p' ../../../../package/dae/daed/Makefile | head -n 1)"
-        qiu_luci_version="$(sed -n 's/^PKG_VERSION:=//p' ../../../../package/dae/luci-app-daed/Makefile | head -n 1)"
-        if [ -z "$qiu_daed_version" ] || ! grep -E '^daed[[:space:]]' "$manifest" | grep -Fq "$qiu_daed_version"; then
-          echo "::error::Firmware manifest does not contain QiuSimons daed ${qiu_daed_version:-unknown}."
-          grep -E '^daed[[:space:]]' "$manifest" || true
-          exit 1
-        fi
-        if [ -z "$qiu_luci_version" ] || ! grep -E '^luci-app-daed[[:space:]]' "$manifest" | grep -Fq "$qiu_luci_version"; then
-          echo "::error::Firmware manifest does not contain QiuSimons luci-app-daed ${qiu_luci_version:-unknown}."
-          grep -E '^luci-app-daed[[:space:]]' "$manifest" || true
-          exit 1
-        fi
-        if grep -Eq '^daed-(geoip|geosite)[[:space:]]' "$manifest"; then
-          echo "::error::Firmware manifest still contains official daed split packages."
-          grep -E '^daed-(geoip|geosite)[[:space:]]' "$manifest"
+        echo "Checking kenzok8/openwrt-daede versions in firmware manifest..."
+        kenzok_dae_version="$(sed -n 's/^PKG_VERSION:=//p' ../../../../package/dae/dae/Makefile | head -n 1)"
+        kenzok_daed_version="$(sed -n 's/^PKG_VERSION:=//p' ../../../../package/dae/daed/Makefile | head -n 1)"
+        kenzok_luci_version="$(sed -n 's/^PKG_VERSION:=//p' ../../../../package/dae/luci-app-daede/Makefile | head -n 1)"
+        for spec in \
+          "dae|$kenzok_dae_version" \
+          "daed|$kenzok_daed_version" \
+          "luci-app-daede|$kenzok_luci_version"; do
+          pkg="${spec%%|*}"
+          version="${spec#*|}"
+          if [ -z "$version" ] || ! grep -E "^${pkg}[[:space:]]" "$manifest" | grep -Fq "$version"; then
+            echo "::error::Firmware manifest does not contain kenzok8 ${pkg} ${version:-unknown}."
+            grep -E "^${pkg}[[:space:]]" "$manifest" || true
+            exit 1
+          fi
+        done
+        if grep -Eq '^(luci-app-daed|daed-(geoip|geosite))[[:space:]]' "$manifest"; then
+          echo "::error::Firmware manifest still contains old official daed/LuCI packages."
+          grep -E '^(luci-app-daed|daed-(geoip|geosite))[[:space:]]' "$manifest"
           exit 1
         fi
         rm -rf packages
@@ -425,7 +442,7 @@ jobs:
         echo "🔹 **镜像名**: \`${{ matrix.source }}\`" >> release.txt
         echo "🔹 **上游**: ImmortalWrt" >> release.txt
         echo "🔹 **分支**: \`${{ matrix.branch }}\`" >> release.txt
-        echo "🔹 **Daed 后端 / LuCI 源**: \`QiuSimons/luci-app-daed\`（已移除 ImmortalWrt 官方同名包）" >> release.txt
+        echo "🔹 **Dae / Daed / LuCI 源**: \`kenzok8/openwrt-daede\`" >> release.txt
         echo "🔹 **ADH 运行时**: \`adguardhome\`（双实例，不使用 luci-app-adguardhome）" >> release.txt
         echo "🔹 **Golang**: ImmortalWrt 官方 \`packages/lang/golang\`（Go 1.26.x）" >> release.txt
         echo "🔹 **构建日期**: $(date '+%Y-%m-%d %H:%M:%S')" >> release.txt
@@ -436,7 +453,7 @@ jobs:
         echo "- 密码: 无（首次登录需设置）" >> release.txt
         echo "" >> release.txt
         echo "### 已集成组件" >> release.txt
-        echo "- Daed / luci-app-daed" >> release.txt
+        echo "- dae + daed + luci-app-daede（双后端统一管理）" >> release.txt
         echo "- 官方 AdGuardHome + 双实例配置：adh-direct / adh-proxy" >> release.txt
         echo "- Lucky" >> release.txt
         echo "- Watchdog" >> release.txt

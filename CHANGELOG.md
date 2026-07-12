@@ -8,7 +8,7 @@
 - 🔄 构建矩阵收敛为两个正式 ImmortalWrt 固件：`immortalwrt/master` 与 `immortalwrt/openwrt-25.12`；产物名称不再使用 `immortalwrt-daed` 后缀。
 - 🔄 固件内容统一按当前 `192.168.50.1` 路由器软件结构构建：Daed + 双 AdGuardHome + Lucky + Watchdog + SQM + UPnP + SFTP。
 - 🔄 第三方插件不再从个人聚合仓库拉取：Lucky、Watchdog 直接从各自上游仓库克隆；Golang、AdGuardHome 使用 ImmortalWrt 官方 packages feed。
-- 🔄 Daed 后端、LuCI 和中文语言包统一改用 `QiuSimons/luci-app-daed` 的 `kix` 分支，并在构建前移除 ImmortalWrt feeds 中的官方同名入口，避免核心静默回退到旧版本。
+- 🔄 `dae`、`daed` 与统一管理界面 `luci-app-daede` 全部改用 `kenzok8/openwrt-daede`，并在构建前移除 ImmortalWrt feeds 中的官方同名/旧版入口。
 - 🔄 Golang 改为直接使用 ImmortalWrt 官方 `packages/lang/golang`（官方 master/openwrt-25.12 已为 Go 1.26.x），不再用第三方 Golang 覆盖官方 feed。
 - 🔄 关闭 ext4 rootfs 与 ext4 文件系统包，Release 仅构建并发布 squashfs 相关镜像和 rootfs.tar.gz。
 
