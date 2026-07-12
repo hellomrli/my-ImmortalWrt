@@ -235,13 +235,19 @@ jobs:
             exit 1
           fi
         done
-        echo "Checking sysupgrade backup retention list..."
-        keep_list="package/base-files/files/etc/sysupgrade.conf"
+        echo "Checking sysupgrade backup retention rules and backup helper..."
+        keep_list="files/lib/upgrade/keep.d/my-immortalwrt"
+        backup_helper="files/usr/sbin/my-sysupgrade-backup"
         if [ ! -s "$keep_list" ]; then
           echo "::error::${keep_list} is missing; plugin runtime configuration may be lost during sysupgrade."
           exit 1
         fi
+        if [ ! -x "$backup_helper" ]; then
+          echo "::error::${backup_helper} is missing or not executable."
+          exit 1
+        fi
         for keep_path in \
+          /etc/config/daed \
           /etc/daed \
           /etc/AdGuardHome-direct.yaml \
           /etc/AdGuardHome-proxy.yaml \
@@ -252,6 +258,7 @@ jobs:
             exit 1
           fi
         done
+        sh -n "$backup_helper"
         make download -j8
         # Do not carry a downloaded/restored Go module cache into package builds;
         # package compilation will recreate it from a clean state.
@@ -396,7 +403,7 @@ jobs:
         echo "### 下载建议" >> release.txt
         echo "- PVE / x86_64 软路由优先使用 \`squashfs-combined-efi.img.gz\`" >> release.txt
         echo "- Legacy BIOS 环境使用 \`squashfs-combined.img.gz\`" >> release.txt
-        echo "- 升级前先备份配置：\`sysupgrade -b /tmp/backup-before-upgrade.tar.gz\`" >> release.txt
+        echo "- 升级前运行：\`my-sysupgrade-backup\`，并把生成的压缩包复制到电脑/NAS" >> release.txt
         echo "- 本仓库不再构建或发布 ext4 combined 镜像" >> release.txt
         echo "status=success" >> $GITHUB_OUTPUT
 

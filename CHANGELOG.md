@@ -12,8 +12,10 @@
 - 🔄 关闭 ext4 rootfs 与 ext4 文件系统包，Release 仅构建并发布 squashfs 相关镜像和 rootfs.tar.gz。
 
 ### Fixed
+- 🛡️ 将项目升级保留清单迁移到只读层 `/lib/upgrade/keep.d/my-immortalwrt`，避免旧 `/etc/sysupgrade.conf` 遮蔽后续保护规则。
+- 🛡️ 新增 `my-sysupgrade-backup`，使用 `sysupgrade -c -k -b` 创建备份，并验证关键配置确实进入压缩包。
 - 🛠️ 强制启用并校验 F2FS overlay 所需的 `kmod-fs-f2fs`、`mkf2fs`、`f2fsck` 和 `f2fs-tools`，避免 squashfs 镜像重启后配置落到 tmpfs 而丢失。
-- 🛡️ 预置 `/etc/sysupgrade.conf`，额外保留 Daed、双 AdGuardHome、Lucky、Watchdog 等运行时配置；ADH 二进制由官方 `adguardhome` 包提供，不再备份二进制。
+- 🛡️ 预置 sysupgrade 项目保留规则，额外保留 Daed、双 AdGuardHome、Lucky、Watchdog 等运行时配置；ADH 二进制由官方 `adguardhome` 包提供，不再备份二进制。
 
 ### Added
 - ✅ 改用官方 `adguardhome` 包提供 ADH Core，并通过 overlay 提供 `adh-direct` / `adh-proxy` 双实例服务与配置。

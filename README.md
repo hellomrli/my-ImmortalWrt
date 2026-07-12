@@ -141,7 +141,13 @@ daed DNS routing
 
 ## 配置保留与升级
 
-固件内预置 `/etc/sysupgrade.conf`，额外保留关键运行时配置：
+### 固件内的保护
+
+项目使用 `/lib/upgrade/keep.d/my-immortalwrt` 保留非标准配置，而不是只依赖
+`/etc/sysupgrade.conf`。`keep.d` 位于固件只读层，旧版本遗留的 overlay 文件不会遮蔽后续规则更新；
+`/etc/sysupgrade.conf` 仍保留给用户填写设备专属路径。
+
+项目规则包含：
 
 ```text
 /etc/config/daed
@@ -154,21 +160,73 @@ daed DNS routing
 /etc/crontabs/root
 ```
 
-升级前建议先备份：
+`/etc/config` 下的 network、dhcp、firewall、SQM、UPnP 等 UCI 配置，以及系统标记为
+conffile 的密码、SSH key、证书等文件，仍由标准 sysupgrade 机制处理。**已安装的软件包本身不会
+因为“保留配置”而自动保留**，所以备份工具同时用 `-k` 导出软件包清单。
+
+### 下一次升级前必须做的事
+
+> 备份清单由当前正在运行的旧固件生成。刚在仓库或新固件里增加规则，不能补救尚未完成的这次升级。
+> 如果当前路由器还没有 `my-sysupgrade-backup`，请直接使用下面的兼容命令；其中 `-c` 会额外保存
+> `/etc` 下所有发生过变更的文件，可覆盖旧固件保留规则不完整的问题。
 
 ```sh
-sysupgrade -b /tmp/backup-before-upgrade.tar.gz
+# 1. 确认当前不是临时 RAM overlay；若命中 /tmp/root，先备份且不要直接重启
+mount | grep -E ' /overlay |overlayfs:/tmp/root'
+
+# 2. 生成包含 /etc 本地变更和已安装软件包清单的备份
+sysupgrade -c -k -b /tmp/backup-before-upgrade.tar.gz
+
+# 3. 验证压缩包可读取，并抽查关键配置
+# 输出路径可能带或不带开头的 /，所以只匹配关键名称
+tar -tzf /tmp/backup-before-upgrade.tar.gz >/dev/null
+tar -tzf /tmp/backup-before-upgrade.tar.gz | grep -E   '(^|/)etc/(config/(network|dhcp|firewall|daed|lucky|lucky\.daji|watchdog)|daed/|AdGuardHome-(direct|proxy)\.yaml|shadow|passwd)'
+sha256sum /tmp/backup-before-upgrade.tar.gz
 ```
 
-升级后确认 overlay 不是 tmpfs：
+然后立刻通过 SCP/SFTP/LuCI 把备份下载到电脑或 NAS；`/tmp` 位于内存，重启或刷机后会消失。
+
+已经运行本项目新固件时，可用内置工具完成相同操作并自动核验关键路径：
 
 ```sh
-mount | grep ' /overlay '
+my-sysupgrade-backup
+# 也可直接写到已挂载的持久磁盘：
+my-sysupgrade-backup /mnt/sda2/my-router-backup.tar.gz
 ```
 
-正常情况下应挂载到持久化 overlay；如果显示类似 `overlayfs:/tmp/root`，说明当前系统没有正确挂载持久化 overlay，重启后配置可能丢失。
+### 安全升级步骤
 
-> 不要用 `dd`、PVE 重新导入整盘、写盘工具覆盖旧磁盘的方式做“保留配置升级”。这些方式会覆盖原 overlay。要保留配置，请使用 LuCI / `sysupgrade`，或先导出备份后再恢复。
+1. 保持同一构建分支升级：`master → master` 或 `openwrt-25.12 → openwrt-25.12`，不要在一次
+   保留配置升级中跨分支迁移。
+2. EFI 环境继续使用 `squashfs-combined-efi.img.gz`；Legacy BIOS 使用
+   `squashfs-combined.img.gz`。不要使用 `rootfs.tar.gz` 做 sysupgrade。
+3. 先测试镜像，再执行升级：
+
+```sh
+sysupgrade -T /tmp/immortalwrt-x86-64-generic-squashfs-combined-efi.img.gz
+sysupgrade -c -k -v /tmp/immortalwrt-x86-64-generic-squashfs-combined-efi.img.gz
+```
+
+不要使用 `-n`（不保留配置）或 `-F`（强制跳过兼容性检查）。LuCI 升级时必须勾选“保留配置”；
+对尚未包含本项目 `keep.d` 的旧固件，优先使用上面的 CLI `-c -k` 流程。
+
+升级后检查：
+
+```sh
+mount | grep -E ' /overlay |overlayfs:/overlay on / '
+sysupgrade -l | grep -E 'AdGuardHome-(direct|proxy)|etc/daed|lucky\.daji'
+uci show network >/dev/null
+uci show dhcp >/dev/null
+/etc/init.d/adh-direct status
+/etc/init.d/adh-proxy status
+```
+
+正常情况下 `/overlay` 应挂载在持久存储上；若根 overlay 显示为 `overlayfs:/tmp/root`，说明配置
+正在写入 RAM，**先把配置备份到外部设备，再排查，期间不要重启**。
+
+> 不要用 `dd`、PVE 重新导入整盘、写盘工具覆盖旧磁盘的方式做“保留配置升级”。这些方式会覆盖
+> 原分区和 overlay。若必须重建虚拟磁盘，应先导出备份，在新系统中上传后执行
+> `sysupgrade -r /tmp/backup-before-upgrade.tar.gz`，检查无误后再重启。
 
 ## 鸣谢
 

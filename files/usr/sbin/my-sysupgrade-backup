@@ -1,0 +1,124 @@
+#!/bin/sh
+# Create and verify a portable pre-upgrade backup for this firmware.
+
+set -eu
+
+usage() {
+	cat <<'USAGE'
+Usage: my-sysupgrade-backup [OUTPUT.tar.gz]
+
+Creates a sysupgrade backup with:
+  - all changed files below /etc (-c)
+  - the installed-package inventory (-k)
+  - project paths from /lib/upgrade/keep.d/my-immortalwrt
+
+The default output is /tmp/my-immortalwrt-backup-YYYYmmdd-HHMMSS.tar.gz.
+Copy the resulting archive to another machine before upgrading.
+USAGE
+}
+
+case "${1:-}" in
+	-h|--help)
+		usage
+		exit 0
+		;;
+esac
+
+if [ "$#" -gt 1 ]; then
+	usage >&2
+	exit 2
+fi
+
+backup="${1:-/tmp/my-immortalwrt-backup-$(date +%Y%m%d-%H%M%S).tar.gz}"
+case "$backup" in
+	/*) ;;
+	*) backup="$PWD/$backup" ;;
+esac
+
+backup_dir=${backup%/*}
+[ -d "$backup_dir" ] || {
+	echo "ERROR: output directory does not exist: $backup_dir" >&2
+	exit 1
+}
+[ ! -e "$backup" ] || {
+	echo "ERROR: refusing to overwrite existing backup: $backup" >&2
+	exit 1
+}
+command -v sysupgrade >/dev/null 2>&1 || {
+	echo "ERROR: sysupgrade is not installed." >&2
+	exit 1
+}
+
+if mount | grep -q 'overlayfs:/tmp/root on / type overlay'; then
+	echo "WARNING: / is using a temporary RAM overlay; copy this backup off-device immediately." >&2
+elif ! mount | grep -q ' on /overlay type '; then
+	echo "WARNING: no persistent /overlay mount was detected." >&2
+fi
+
+list_file=$(mktemp /tmp/my-sysupgrade-list.XXXXXX)
+archive_list=$(mktemp /tmp/my-sysupgrade-archive.XXXXXX)
+trap 'rm -f "$list_file" "$archive_list"' EXIT HUP INT TERM
+
+# -c is deliberate: it also catches locally-created configuration files below
+# /etc that an older firmware did not yet list in keep.d or sysupgrade.conf.
+sysupgrade -c -l | sed 's#^/##' > "$list_file"
+
+missing=0
+for path in \
+	/etc/config/daed \
+	/etc/daed \
+	/etc/AdGuardHome-direct.yaml \
+	/etc/AdGuardHome-proxy.yaml \
+	/etc/config/lucky \
+	/etc/config/lucky.daji \
+	/etc/config/watchdog \
+	/etc/crontabs/root; do
+	[ -e "$path" ] || continue
+	rel=${path#/}
+	if ! grep -F -x "$rel" "$list_file" >/dev/null 2>&1 && \
+	   ! grep -F "${rel}/" "$list_file" >/dev/null 2>&1; then
+		echo "ERROR: existing path is absent from the backup list: $path" >&2
+		missing=1
+	fi
+done
+[ "$missing" -eq 0 ] || exit 1
+
+sysupgrade -c -k -b "$backup"
+[ -s "$backup" ] || {
+	echo "ERROR: sysupgrade produced an empty backup: $backup" >&2
+	exit 1
+}
+
+if ! tar -tzf "$backup" > "$archive_list"; then
+	echo "ERROR: backup archive integrity check failed: $backup" >&2
+	exit 1
+fi
+if ! grep -F -x "etc/backup/installed_packages.txt" "$archive_list" >/dev/null 2>&1; then
+	echo "ERROR: installed-package inventory is absent from the archive." >&2
+	exit 1
+fi
+
+missing=0
+for path in \
+	/etc/config/daed \
+	/etc/daed \
+	/etc/AdGuardHome-direct.yaml \
+	/etc/AdGuardHome-proxy.yaml \
+	/etc/config/lucky \
+	/etc/config/lucky.daji \
+	/etc/config/watchdog \
+	/etc/crontabs/root; do
+	[ -e "$path" ] || continue
+	rel=${path#/}
+	if ! grep -F -x "$rel" "$archive_list" >/dev/null 2>&1 && \
+	   ! grep -F "${rel}/" "$archive_list" >/dev/null 2>&1; then
+		echo "ERROR: existing path is absent from the archive: $path" >&2
+		missing=1
+	fi
+done
+[ "$missing" -eq 0 ] || exit 1
+
+printf '\nBackup created and verified:\n  %s\n' "$backup"
+printf 'SHA256: '
+sha256sum "$backup" | awk '{print $1}'
+printf '\nIMPORTANT: copy this file to your computer/NAS before running sysupgrade.\n'

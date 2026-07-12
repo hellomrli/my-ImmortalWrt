@@ -40,7 +40,7 @@ dns:
     - 2408:8001:4000:9000:221:7:128:68
     - 2408:8001:4010:9000:221:7:136:68
   fallback_dns: []
-  upstream_mode: load_balance
+  upstream_mode: parallel
   fastest_timeout: 1s
   allowed_clients: []
   disallowed_clients: []

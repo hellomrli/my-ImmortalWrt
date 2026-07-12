@@ -65,19 +65,9 @@ config mount
 FSTAB
 
 
-# 3.1. 预置 sysupgrade 额外备份清单，保护第三方插件运行时目录。
-# /etc/config 默认会被 sysupgrade 备份；这里显式列出关键插件配置和非 UCI 数据目录，
-# 避免 Daed、双 AdGuardHome、Lucky、Watchdog 等运行时配置在升级后丢失。
-cat > package/base-files/files/etc/sysupgrade.conf << 'SYSUPGRADE'
-/etc/config/daed
-/etc/daed
-/etc/AdGuardHome-direct.yaml
-/etc/AdGuardHome-proxy.yaml
-/etc/config/lucky
-/etc/config/lucky.daji
-/etc/config/watchdog
-/etc/crontabs/root
-SYSUPGRADE
+# 3.1. 升级保留规则由 files/lib/upgrade/keep.d/my-immortalwrt 提供。
+# 不覆盖 /etc/sysupgrade.conf：该文件留给用户添加设备专属路径；keep.d 位于只读 ROM，
+# 不会被旧固件保留下来的 overlay 文件遮蔽，后续规则修复也能随新固件生效。
 
 # 4. 保持 APK 默认源由 ImmortalWrt 构建系统生成，避免混入目录格式源导致 apk update 拉取 APKINDEX.tar.gz
 # 不要预置 /etc/apk/repositories.d/customfeeds.list：该文件由 apk-openssl 包提供，

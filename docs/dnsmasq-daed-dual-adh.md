@@ -28,7 +28,7 @@ daed DNS routing
 ## 关键兼容性处理
 
 1. 去掉 daed DNS 的 `ipversion_prefer: 4`，避免近似“只用 IPv4”。
-2. 去掉全局 `l4proto(udp) && dport(443) -> block`，避免影响手机 App 的 QUIC/HTTP3。
+2. 去掉全局 `l4proto(udp) && dport(443) -> block`，避免影响手机 App / 游戏 / QUIC / HTTP3。
 3. 两个 ADH 实例共用官方 `adguardhome` 包提供的 `/usr/bin/AdGuardHome` 二进制；固件只额外提供 `/usr/bin/AdGuardHome-direct` 和 `/usr/bin/AdGuardHome-proxy` 两个 symlink，用于保留 daed `pname(...)` 分流能力。
 4. daed routing 只让 `pname(AdGuardHome-direct)` 全直连，避免 ISP DNS 查询被 daed 再次送回 ADH 形成环路。
 5. `adh-proxy` 对应的 DoH HTTPS 连接不直连；按 daed 规则走代理。
@@ -94,6 +94,7 @@ dns {
 ```text
 pname(AdGuardHome-direct) -> must_direct
 # 不要添加 pname(AdGuardHome-proxy) -> direct
+pname(AdGuardHome-proxy) -> default_vmiss
 # 不要添加 l4proto(udp) && dport(443) -> block
 ```
 
@@ -119,4 +120,83 @@ tail -n 200 /var/log/daed/daed.log | grep -E '127.0.0.1:5053|AdGuardHome-prox|Ad
 /etc/daed
 /etc/config/daed
 /etc/config/dhcp
+```
+
+
+## 临时关闭国外 AAAA 解析（保留国内双栈）
+
+当国外 IPv6 出口（例如 CC 节点 IPv6）故障时，只关闭国外 AAAA，不要全局过滤 AAAA：
+
+1. `ADH-direct` 保持 `aaaa_disabled: false`，国内 IPv4/IPv6 双栈正常。
+2. `ADH-proxy` 临时设置 `aaaa_disabled: true`，国外只返回 IPv4。
+3. daed DNS response 只拒绝非中国域名 AAAA：
+
+```text
+response {
+  qtype(aaaa) && qname(geosite:geolocation-!cn) -> reject
+  fallback: accept
+}
+```
+
+故障期间如 ADH-proxy 上游列表里有 IPv6 DNS/DoH，可临时移除，避免上游探测超时：
+
+```sh
+cp /etc/AdGuardHome-proxy.yaml /etc/AdGuardHome-proxy.yaml.bak-before-disable-foreign-aaaa-$(date +%Y%m%d-%H%M%S)
+sed -i 's/^  aaaa_disabled: false/  aaaa_disabled: true/' /etc/AdGuardHome-proxy.yaml
+sed -i '/2606:4700:4700::/d; /2001:4860:4860::/d' /etc/AdGuardHome-proxy.yaml
+/etc/init.d/adh-proxy restart
+```
+
+不要使用这些全局止血规则，除非明确接受副作用：
+
+```text
+# 会破坏国内 IPv6 双栈，不推荐：
+dhcp.@dnsmasq[0].filter_aaaa='1'
+
+# 会影响部分手机 App / 游戏 / QUIC，不推荐：
+l4proto(udp) && dport(443) -> block
+```
+
+恢复国外 IPv6：
+
+```sh
+# 如需恢复被临时移除的 IPv6 上游，优先从上面的 bak 文件恢复；或手工加回原 IPv6 DNS/DoH。
+sed -i 's/^  aaaa_disabled: true/  aaaa_disabled: false/' /etc/AdGuardHome-proxy.yaml
+/etc/init.d/adh-proxy restart
+```
+
+## 国外 ADH-proxy 上游要求
+
+`ADH-proxy` 的国外上游必须使用 DoH/DoT，并且它自身的出站连接必须经 daed 代理，避免明文国外 DNS 被污染或超时。当前临时方案使用 IPv4 DoH（CC IPv6 恢复前不放 IPv6 DoH）：
+
+```yaml
+dns:
+  upstream_dns:
+    - https://1.1.1.1/dns-query
+    - https://1.0.0.1/dns-query
+    - https://8.8.8.8/dns-query
+    - https://8.8.4.4/dns-query
+  upstream_mode: parallel
+  aaaa_disabled: true
+```
+
+对应 daed routing 需要有：
+
+```text
+pname(AdGuardHome-direct) -> must_direct
+pname(AdGuardHome-proxy) -> default_vmiss
+```
+
+这样国外 DNS 路径为：
+
+```text
+client/dnsmasq -> daed DNS -> ADH-proxy :50531 -> DoH(1.1.1.1/8.8.8.8) -> default_vmiss
+```
+
+国内 `ADH-direct` 也使用并行请求：
+
+```yaml
+dns:
+  upstream_mode: parallel
+  aaaa_disabled: false
 ```

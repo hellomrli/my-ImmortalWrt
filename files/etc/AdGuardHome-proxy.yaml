@@ -33,24 +33,12 @@ dns:
     - https://1.0.0.1/dns-query
     - https://8.8.8.8/dns-query
     - https://8.8.4.4/dns-query
-    - https://[2606:4700:4700::1111]/dns-query
-    - https://[2606:4700:4700::1001]/dns-query
-    - https://[2001:4860:4860::8888]/dns-query
-    - https://[2001:4860:4860::8844]/dns-query
   upstream_dns_file: ""
   bootstrap_dns:
-    - 1.1.1.1
-    - 1.0.0.1
-    - 8.8.8.8
-    - 8.8.4.4
-    - 9.9.9.9
-    - 149.112.112.112
-    - 2606:4700:4700::1111
-    - 2606:4700:4700::1001
-    - 2001:4860:4860::8888
-    - 2001:4860:4860::8844
-    - 2620:fe::fe
-    - 2620:fe::9
+    - 221.7.128.68
+    - 221.7.136.68
+    - 223.5.5.5
+    - 119.29.29.29
   fallback_dns: []
   upstream_mode: parallel
   fastest_timeout: 1s
@@ -68,7 +56,7 @@ dns:
   cache_optimistic_answer_ttl: 30s
   cache_optimistic_max_age: 12h
   bogus_nxdomain: []
-  aaaa_disabled: false
+  aaaa_disabled: true
   enable_dnssec: false
   edns_client_subnet:
     custom_ip: ""
