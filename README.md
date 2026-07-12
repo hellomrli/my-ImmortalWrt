@@ -70,10 +70,9 @@
 
 ### DNS / 代理
 
-- `daed`
+- `daed`（后端、dae-wing 与 dae-core 均由 `QiuSimons/luci-app-daed` 构建定义提供）
 - `adguardhome`（官方包，预置 `adh-direct` / `adh-proxy` 双实例配置）
 - `dnsmasq-full`
-- `daed-geoip` / `daed-geosite`
 - `v2ray-geoip` / `v2ray-geosite`
 
 ### 系统工具
@@ -136,7 +135,7 @@ daed DNS routing
 构建时直接使用 ImmortalWrt 官方 `packages/lang/golang`：
 
 - 已核对 `immortalwrt/packages` 的 `master` 与 `openwrt-25.12` 分支均默认 `GO_DEFAULT_VERSION:=1.26`，当前为 Go 1.26.4。
-- 构建脚本不再覆盖 `feeds/packages/lang/golang`，避免第三方 Go helper 与官方 `daed` 包组合不一致。
+- 构建脚本不再覆盖 `feeds/packages/lang/golang`，由 ImmortalWrt 官方 Go helper 编译 QiuSimons 的 `daed` 包。
 - 不再通过 `actions/setup-go` 强制外部 bootstrap，按官方 Golang 包自身逻辑处理 Go bootstrap。
 
 ## 配置保留与升级

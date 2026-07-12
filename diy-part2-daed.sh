@@ -31,17 +31,43 @@ rm -rf \
 git clone --depth 1 https://github.com/gdy666/luci-app-lucky.git package/lucky
 git clone --depth 1 https://github.com/sirpdboy/luci-app-watchdog.git package/watchdog
 
-# QiuSimons/luci-app-daed 同仓库还包含 daed 后端包；这里只取 LuCI，
-# daed 后端继续使用 ImmortalWrt 官方 feeds/packages/net/daed，避免重复包定义。
-rm -rf /tmp/luci-app-daed-src
-git clone --depth 1 --filter=blob:none --sparse https://github.com/QiuSimons/luci-app-daed.git /tmp/luci-app-daed-src
-git -C /tmp/luci-app-daed-src sparse-checkout set luci-app-daed
-mv /tmp/luci-app-daed-src/luci-app-daed package/luci-app-daed
-rm -rf /tmp/luci-app-daed-src
+# QiuSimons/luci-app-daed 同时提供 daed 后端和 LuCI。必须移除 feeds install
+# 生成的官方同名入口，否则 OpenWrt 的包扫描顺序可能静默选回官方旧版本。
+rm -rf \
+    package/feeds/packages/daed \
+    package/feeds/luci/luci-app-daed
+
+git clone --depth 1 --branch kix \
+    https://github.com/QiuSimons/luci-app-daed.git package/dae
+
+# 构建前立即验证来源和版本元数据；任一文件缺失都拒绝继续，避免回退。
+qiu_daed_makefile="package/dae/daed/Makefile"
+qiu_luci_makefile="package/dae/luci-app-daed/Makefile"
+for makefile in "$qiu_daed_makefile" "$qiu_luci_makefile"; do
+    if [ ! -s "$makefile" ]; then
+        echo "ERROR: QiuSimons package Makefile is missing: $makefile" >&2
+        exit 1
+    fi
+done
+if ! grep -q '^PKG_SOURCE_URL:=https://github.com/daeuniverse/daed.git$' "$qiu_daed_makefile" ||
+   ! grep -q '^CORE_VERSION:=core-' "$qiu_daed_makefile"; then
+    echo "ERROR: package/dae/daed is not the expected QiuSimons daed package" >&2
+    exit 1
+fi
+for official_entry in package/feeds/packages/daed package/feeds/luci/luci-app-daed; do
+    if [ -e "$official_entry" ] || [ -L "$official_entry" ]; then
+        echo "ERROR: official daed package entry still exists: $official_entry" >&2
+        exit 1
+    fi
+done
+
+echo "Using QiuSimons daed packages:"
+grep -E '^(PKG_VERSION|DAED_VERSION|WING_VERSION|CORE_VERSION):=' "$qiu_daed_makefile"
+grep -E '^(PKG_VERSION|PKG_RELEASE):=' "$qiu_luci_makefile"
 
 # 2. 使用 ImmortalWrt 官方 packages feed 自带的 Golang。
 # 官方 master / openwrt-25.12 的 packages/lang/golang 已默认 Go 1.26.x。
-# 不额外覆盖官方 Golang，以提高与官方 daed/Go helper 的兼容性。
+# 不额外覆盖官方 Golang，以保持 QiuSimons daed 与 OpenWrt Go helper 的兼容性。
 if [ ! -d feeds/packages/lang/golang ]; then
     echo "ERROR: feeds/packages/lang/golang is missing after feeds install" >&2
     exit 1
