@@ -9,6 +9,28 @@ set -eu
 ln -sf AdGuardHome /usr/bin/AdGuardHome-direct
 ln -sf AdGuardHome /usr/bin/AdGuardHome-proxy
 
+adh_has_user() {
+  awk '
+    /^users:/ { in_users=1; next }
+    in_users && /^[^[:space:]]/ { in_users=0 }
+    in_users && /^[[:space:]]*-[[:space:]]+name:/ { found=1 }
+    END { exit(found ? 0 : 1) }
+  ' "$1"
+}
+
+secure_unauthenticated_web() {
+  local conf="$1" address="$2"
+  [ -f "$conf" ] || return 0
+  if ! adh_has_user "$conf"; then
+    sed -i "s#^  address:.*#  address: ${address}#" "$conf"
+  fi
+}
+
+# Older images shipped users: [] while forcing the Web UI onto the LAN from the
+# init command line.  On upgrade, close that exposure unless a real user exists.
+secure_unauthenticated_web /etc/AdGuardHome-direct.yaml 127.0.0.1:50080
+secure_unauthenticated_web /etc/AdGuardHome-proxy.yaml 127.0.0.1:50081
+
 cat > /etc/init.d/adh-direct <<'EOS'
 #!/bin/sh /etc/rc.common
 USE_PROCD=1
@@ -20,8 +42,9 @@ WORK=/var/lib/adguardhome-direct
 start_service() {
   [ -x "$BIN" ] || return 1
   mkdir -p "$WORK"
+  mkdir -p /tmp/log
   procd_open_instance
-  procd_set_param command "$BIN" -c "$CONF" -w "$WORK" --web-addr 192.168.50.1:50080 --no-check-update --no-permcheck
+  procd_set_param command "$BIN" -c "$CONF" -w "$WORK" --no-check-update --no-permcheck
   procd_set_param respawn 3600 5 5
   procd_set_param limits nofile="65535 65535"
   procd_set_param stdout 1
@@ -43,8 +66,9 @@ WORK=/var/lib/adguardhome-proxy
 start_service() {
   [ -x "$BIN" ] || return 1
   mkdir -p "$WORK"
+  mkdir -p /tmp/log
   procd_open_instance
-  procd_set_param command "$BIN" -c "$CONF" -w "$WORK" --web-addr 192.168.50.1:50081 --no-check-update --no-permcheck
+  procd_set_param command "$BIN" -c "$CONF" -w "$WORK" --no-check-update --no-permcheck
   procd_set_param respawn 3600 5 5
   procd_set_param limits nofile="65535 65535"
   procd_set_param stdout 1

@@ -13,6 +13,10 @@
 - 🔄 关闭 ext4 rootfs 与 ext4 文件系统包，Release 仅构建并发布 squashfs 相关镜像和 rootfs.tar.gz。
 
 ### Fixed
+- 🔐 全新安装的双 AdGuardHome 配置在没有用户密码哈希时只监听 loopback；升级时若旧 YAML 仍为无用户状态，也会自动收回 LAN 暴露，已有认证配置保持原监听地址。
+- 🛠️ 按当前实机 `dae + 双 AdGuardHome` 链路补丁 `luci-app-daede` 生成器，默认使用 `127.0.0.1:50530/50531`，移除全局 `ipversion_prefer: 4`，并生成 ADH 进程分流规则，避免 LuCI 保存后覆盖有效 DNS 配置。
+- 🛡️ dae 表单生成器拒绝覆盖没有自身生成标记的 `/etc/dae/config.dae`，保护实机中 UCI 表单无法完整表达的手工节点组和 routing 规则。
+- 🛠️ `luci-app-daede` 默认激活后端改为当前实机使用的 `dae`，仍保留 `daed` 包供手工切换。
 - 🛡️ 将项目升级保留清单迁移到只读层 `/lib/upgrade/keep.d/my-immortalwrt`，避免旧 `/etc/sysupgrade.conf` 遮蔽后续保护规则。
 - 🛡️ 新增 `my-sysupgrade-backup`，使用 `sysupgrade -c -k -b` 创建备份，并验证关键配置确实进入压缩包。
 - 🛠️ 强制启用并校验 F2FS overlay 所需的 `kmod-fs-f2fs`、`mkf2fs`、`f2fsck` 和 `f2fs-tools`，避免 squashfs 镜像重启后配置落到 tmpfs 而丢失。

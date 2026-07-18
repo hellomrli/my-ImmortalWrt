@@ -9,7 +9,9 @@ http:
       - GET /dns-query/{ClientID}
       - POST /dns-query/{ClientID}
     insecure_enabled: false
-  address: 192.168.50.1:50081
+  # Fresh images have no committed password hash.  Keep the unauthenticated UI
+  # on loopback; upgrades preserve an authenticated user's existing LAN address.
+  address: 127.0.0.1:50081
   session_ttl: 30d
 users: []
 auth_attempts: 5
@@ -44,7 +46,10 @@ dns:
   fastest_timeout: 1s
   allowed_clients: []
   disallowed_clients: []
-  blocked_hosts: []
+  blocked_hosts:
+    - version.bind
+    - id.server
+    - hostname.bind
   trusted_proxies:
     - 127.0.0.0/8
     - ::1/128
@@ -191,12 +196,12 @@ clients:
   persistent: []
 log:
   enabled: true
-  file: ""
-  max_backups: 0
-  max_size: 100
+  file: /tmp/log/AdGuardHome-proxy.log
+  max_backups: 1
+  max_size: 10
   max_age: 3
   compress: false
-  local_time: false
+  local_time: true
   verbose: false
 os:
   group: ""

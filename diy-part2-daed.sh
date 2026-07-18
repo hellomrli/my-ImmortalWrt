@@ -12,6 +12,8 @@
 
 set -euo pipefail
 
+repo_root="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+
 # Modify default IP
 sed -i 's/192.168.1.1/192.168.50.1/g' package/base-files/files/bin/config_generate
 
@@ -42,6 +44,8 @@ rm -rf \
 
 git clone --depth 1 \
     https://github.com/kenzok8/openwrt-daede.git package/dae
+
+python3 "$repo_root/.github/scripts/patch-daede-defaults.py" package/dae
 
 # 构建前立即验证三包来源和版本元数据；任一文件缺失都拒绝继续，避免回退。
 kenzok_dae_makefile="package/dae/dae/Makefile"

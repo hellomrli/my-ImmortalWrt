@@ -8,7 +8,7 @@
 
 </div>
 
-这是一个面向 x86_64 软路由 / PVE / QEMU 的 ImmortalWrt 固件构建仓库。当前固件按实际路由器 `192.168.50.1` 的最终软件结构整理，重点是 **dae / daed 双后端透明代理 + dnsmasq + 双 AdGuardHome DNS 分流**，并保留常用管理、QoS、UPnP、SFTP 和虚拟化组件。
+这是一个面向 x86_64 软路由 / PVE / QEMU 的 ImmortalWrt 固件构建仓库。当前固件按实际路由器 `192.168.50.1` 的最终软件结构整理，重点是 **dae / daed 双后端透明代理 + dnsmasq + 双 AdGuardHome DNS 分流**，并保留常用管理、QoS、UPnP、SFTP 和虚拟化组件。默认激活与实机一致的 `dae` 后端，`daed` 保留为可切换后端。
 
 固件发布名称保持正式的 `immortalwrt`，不再使用额外的 `-daed` 后缀。目前仅保留两个构建分支：
 
@@ -46,7 +46,7 @@
 - 基于 ImmortalWrt x86_64，适合 PVE、QEMU 和常规 x86 软路由。
 - 默认 LAN IP 改为 `192.168.50.1`，避免和常见上级路由 `192.168.1.1` 冲突。
 - 同时内置 `dae` 与 `daed`，通过 `luci-app-daede` 统一管理和切换后端，不再构建 OpenClash 变体。
-- 内置 `dnsmasq + daed + 双 AdGuardHome` DNS 分流结构。
+- 内置 `dnsmasq + dae（默认）/ daed（可选）+ 双 AdGuardHome` DNS 分流结构。
 - 双 AdGuardHome 以独立运行时服务形式安装，不使用 `luci-app-adguardhome` 管理。
 - 预装 `openssh-sftp-server`，方便后续通过 SFTP / SCP 传递文件。
 - 预装 `qemu-ga`，适合 PVE / QEMU 虚拟机管理、关机和状态识别。
@@ -98,8 +98,8 @@
 LAN clients
   ↓ DNS :53
 dnsmasq
-  ↓ daed 透明 DNS 接管 / 分流
-daed DNS routing
+  ↓ dae 透明 DNS 接管 / 分流（daed 可选）
+dae DNS routing
   ├─ 国内 / private 域名 → ADH-direct :50530 → ISP DNS
   └─ 国外 / fallback    → ADH-proxy  :50531 → DoH DNS
 ```
@@ -111,11 +111,11 @@ daed DNS routing
 | dnsmasq | LAN / loopback | 53 | LAN DNS 入口 |
 | ADH-direct DNS | `127.0.0.1` / `::1` | 50530 | 国内 DNS 后端 |
 | ADH-proxy DNS | `127.0.0.1` / `::1` | 50531 | 国外 DNS 后端 |
-| ADH-direct Web | `192.168.50.1` | 50080 | 国内实例管理 |
-| ADH-proxy Web | `192.168.50.1` | 50081 | 国外实例管理 |
+| ADH-direct Web | `127.0.0.1`（首次启动） | 50080 | 设置认证前仅本机可访问 |
+| ADH-proxy Web | `127.0.0.1`（首次启动） | 50081 | 设置认证前仅本机可访问 |
 | daed Web | `0.0.0.0` / `::` | 2023 | Daed 管理 |
 
-固件使用 ImmortalWrt 官方 `packages/net/adguardhome` 提供 `/usr/bin/AdGuardHome` 二进制，并通过 overlay 预置两个 procd 服务和两个 symlink（用于 daed 按进程名区分 direct/proxy）：
+固件使用 ImmortalWrt 官方 `packages/net/adguardhome` 提供 `/usr/bin/AdGuardHome` 二进制，并通过 overlay 预置两个 procd 服务和两个 symlink（用于 dae 按进程名区分 direct/proxy）：
 
 - `/etc/init.d/adh-direct`
 - `/etc/init.d/adh-proxy`
@@ -127,7 +127,17 @@ daed DNS routing
 - `/etc/AdGuardHome-direct.yaml`
 - `/etc/AdGuardHome-proxy.yaml`
 
-官方单实例 `/etc/init.d/adguardhome` 会在首次启动时被禁用，避免与双实例端口冲突。默认模板不会提交现有路由器的 ADH Web 登录密码哈希；全新刷机后请自行设置 Web 登录信息，保留配置升级时则会通过 sysupgrade 继续保留现有 YAML。
+官方单实例 `/etc/init.d/adguardhome` 会在首次启动时被禁用，避免与双实例端口冲突。默认模板不会提交现有路由器的 ADH Web 登录密码哈希，因此全新刷机时 Web UI 只监听 loopback，不会把无认证管理界面暴露到 LAN。已有认证配置在 sysupgrade 时会保留原 YAML 和 LAN 监听地址。
+
+全新安装可先通过 SSH 隧道访问两个界面：
+
+```sh
+ssh -L 50080:127.0.0.1:50080 -L 50081:127.0.0.1:50081 root@192.168.50.1
+```
+
+在电脑上打开 `http://127.0.0.1:50080` / `http://127.0.0.1:50081`。设置认证后，如需直接从 LAN 管理，再把对应 YAML 的 `http.address` 改为 `192.168.50.1:50080` / `192.168.50.1:50081` 并重启服务。若需要手工生成 bcrypt 哈希，可在装有 Apache 工具的电脑运行交互式 `htpasswd -nBC 10 root`，将输出中冒号后的哈希填入 YAML 的 `users` 项。
+
+构建阶段会补丁并校验 `luci-app-daede` 的 dae 配置生成器：默认 DNS 上游固定为两个本地 ADH，不再写入全局 `ipversion_prefer: 4`，并保留 ADH-direct 直连、ADH-proxy 走代理所需的进程规则。生成器只覆盖带有自身生成标记的配置；当前实机这类包含复杂节点组和手工 routing 的 `/etc/dae/config.dae` 会被识别为非托管配置，LuCI 表单保存将安全失败而不会清空规则，需要通过原始配置编辑器有意识地维护或先完成迁移。
 
 更详细的 DNS 方案记录见：[`docs/dnsmasq-daed-dual-adh.md`](docs/dnsmasq-daed-dual-adh.md)。
 
@@ -183,7 +193,7 @@ sysupgrade -c -k -b /tmp/backup-before-upgrade.tar.gz
 # 3. 验证压缩包可读取，并抽查关键配置
 # 输出路径可能带或不带开头的 /，所以只匹配关键名称
 tar -tzf /tmp/backup-before-upgrade.tar.gz >/dev/null
-tar -tzf /tmp/backup-before-upgrade.tar.gz | grep -E   '(^|/)etc/(config/(network|dhcp|firewall|daed|lucky|lucky\.daji|watchdog)|daed/|AdGuardHome-(direct|proxy)\.yaml|shadow|passwd)'
+tar -tzf /tmp/backup-before-upgrade.tar.gz | grep -E   '(^|/)etc/(config/(network|dhcp|firewall|dae|daed|daede|lucky|lucky\.daji|watchdog)|dae/|daed/|AdGuardHome-(direct|proxy)\.yaml|shadow|passwd)'
 sha256sum /tmp/backup-before-upgrade.tar.gz
 ```
 
@@ -217,7 +227,7 @@ sysupgrade -c -k -v /tmp/immortalwrt-x86-64-generic-squashfs-combined-efi.img.gz
 
 ```sh
 mount | grep -E ' /overlay |overlayfs:/overlay on / '
-sysupgrade -l | grep -E 'AdGuardHome-(direct|proxy)|etc/daed|lucky\.daji'
+sysupgrade -l | grep -E 'AdGuardHome-(direct|proxy)|etc/(dae|daed)|lucky\.daji'
 uci show network >/dev/null
 uci show dhcp >/dev/null
 /etc/init.d/adh-direct status

@@ -69,7 +69,7 @@ jobs:
       with:
         token: ${{ github.token }}
         event-type: openwrt-builder
-        client-payload: '{"sources": "${{ matrix.payload_sources || matrix.source }}", "branches": "${{ matrix.payload_branches || matrix.branch }}"}'
+        client-payload: '{"sources": "${{ matrix.source }}", "branches": "${{ matrix.branch }}"}'
 
   cleanup-runs:
     needs: check

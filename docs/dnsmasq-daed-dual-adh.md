@@ -1,4 +1,4 @@
-# dnsmasq + daed + 双 AdGuardHome 实际方案
+# dnsmasq + dae / daed + 双 AdGuardHome 实际方案
 
 实际链路：
 
@@ -6,13 +6,13 @@
 LAN clients
   ↓ DNS :53
 dnsmasq
-  ↓ daed 透明 DNS 接管/分流
-daed DNS routing
+  ↓ dae 透明 DNS 接管/分流（daed 可选）
+dae DNS routing
   ├─ geosite:private / geosite:cn → ADH-direct :50530 → ISP IPv4/IPv6 DNS
   └─ fallback / 国外域名            → ADH-proxy  :50531 → DoH-only DNS
 ```
 
-> 当前 daed/daed UI 使用透明 DNS 接管，不暴露固定 `50500` listener；不要把 dnsmasq 直接改到 `127.0.0.1#50500`。
+> 当前 `luci-app-daede` 默认激活实机正在使用的 `dae` 后端，并使用透明 DNS 接管，不暴露固定 `50500` listener；不要把 dnsmasq 直接改到 `127.0.0.1#50500`。
 
 ## 端口
 
@@ -21,23 +21,24 @@ daed DNS routing
 | dnsmasq | LAN / loopback | 53 | LAN DNS 入口 |
 | ADH-direct DNS | 127.0.0.1 / ::1 | 50530 | 国内 DNS 后端 |
 | ADH-proxy DNS | 127.0.0.1 / ::1 | 50531 | 国外 DNS 后端 |
-| ADH-direct Web | 192.168.50.1 | 50080 | 国内实例管理 |
-| ADH-proxy Web | 192.168.50.1 | 50081 | 国外实例管理 |
+| ADH-direct Web | 127.0.0.1（新装） | 50080 | 设置认证前仅本机/SSH 隧道管理 |
+| ADH-proxy Web | 127.0.0.1（新装） | 50081 | 设置认证前仅本机/SSH 隧道管理 |
 | daed Web | 0.0.0.0 / :: | 2023 | daed 管理 |
 
 ## 关键兼容性处理
 
-1. 去掉 daed DNS 的 `ipversion_prefer: 4`，避免近似“只用 IPv4”。
+1. 构建时补丁 `luci-app-daede` 的 dae 生成器，去掉 `ipversion_prefer: 4`，避免一次 LuCI 保存就把全局 DNS 变成近似“只用 IPv4”。
 2. 去掉全局 `l4proto(udp) && dport(443) -> block`，避免影响手机 App / 游戏 / QUIC / HTTP3。
-3. 两个 ADH 实例共用官方 `adguardhome` 包提供的 `/usr/bin/AdGuardHome` 二进制；固件只额外提供 `/usr/bin/AdGuardHome-direct` 和 `/usr/bin/AdGuardHome-proxy` 两个 symlink，用于保留 daed `pname(...)` 分流能力。
-4. daed routing 只让 `pname(AdGuardHome-direct)` 全直连，避免 ISP DNS 查询被 daed 再次送回 ADH 形成环路。
-5. `adh-proxy` 对应的 DoH HTTPS 连接不直连；按 daed 规则走代理。
+3. 两个 ADH 实例共用官方 `adguardhome` 包提供的 `/usr/bin/AdGuardHome` 二进制；固件只额外提供 `/usr/bin/AdGuardHome-direct` 和 `/usr/bin/AdGuardHome-proxy` 两个 symlink，用于保留 dae `pname(...)` 分流能力。
+4. dae routing 只让 ADH-direct 的实际 Linux 进程名全直连，避免 ISP DNS 查询被 dae 再次送回 ADH 形成环路。
+5. `adh-proxy` 对应的 DoH HTTPS 连接不直连；按 dae 规则走代理。
 6. `adh-proxy` 的 DoH 上游使用 IP-literal DoH，减少 bootstrap 自引用问题。
+7. 实机 `/etc/dae/config.dae` 含有简化 UCI 表单无法表达的节点组和 routing；生成器只覆盖带自身标记的配置，避免一次表单保存清空手工规则。需要修改这类配置时使用原始配置编辑器，或先完整迁移到 UCI。
 
 ## ADH-direct
 
 - DNS：`127.0.0.1:50530` / `[::1]:50530`
-- Web：`http://192.168.50.1:50080`
+- Web：新装为 `http://127.0.0.1:50080`；设置认证后可改回 LAN 地址
 - 上游：ISP DNS
   - `221.7.128.68`
   - `221.7.136.68`
@@ -48,7 +49,7 @@ daed DNS routing
 ## ADH-proxy
 
 - DNS：`127.0.0.1:50531` / `[::1]:50531`
-- Web：`http://192.168.50.1:50081`
+- Web：新装为 `http://127.0.0.1:50081`；设置认证后可改回 LAN 地址
 - 上游：DoH only
   - `https://1.1.1.1/dns-query`
   - `https://1.0.0.1/dns-query`
@@ -60,7 +61,7 @@ daed DNS routing
   - `https://[2001:4860:4860::8844]/dns-query`
 - 策略：国外广告/隐私过滤，中高强度。
 
-## daed DNS 配置核心
+## dae DNS 配置核心
 
 ```text
 dns {
@@ -89,12 +90,13 @@ dns {
 }
 ```
 
-## daed routing 核心变更
+## dae routing 核心变更
 
 ```text
-pname(AdGuardHome-direct) -> must_direct
-# 不要添加 pname(AdGuardHome-proxy) -> direct
-pname(AdGuardHome-proxy) -> default_vmiss
+# dae 在当前内核优先读取 16 字节 argv 名，降级时读取 15 字节 comm；两种都匹配。
+pname(AdGuardHome-dir, AdGuardHome-dire) -> must_direct
+# 不要把 ADH-proxy 设为 direct；目标应为当前配置的 fallback 代理组。
+pname(AdGuardHome-pro, AdGuardHome-prox) -> default_vmiss
 # 不要添加 l4proto(udp) && dport(443) -> block
 ```
 
@@ -107,7 +109,7 @@ nslookup baidu.com 127.0.0.1
 nslookup google.com 127.0.0.1
 nslookup -query=AAAA google.com 127.0.0.1
 
-tail -n 200 /var/log/daed/daed.log | grep -E '127.0.0.1:5053|AdGuardHome-prox|AdGuardHome-dire'
+tail -n 200 /var/log/dae/dae.log | grep -E '127.0.0.1:5053|AdGuardHome-prox|AdGuardHome-dire'
 ```
 
 ## sysupgrade 保留
@@ -132,7 +134,7 @@ tail -n 200 /var/log/daed/daed.log | grep -E '127.0.0.1:5053|AdGuardHome-prox|Ad
 
 1. `ADH-direct` 保持 `aaaa_disabled: false`，国内 IPv4/IPv6 双栈正常。
 2. `ADH-proxy` 临时设置 `aaaa_disabled: true`，国外只返回 IPv4。
-3. daed DNS response 只拒绝非中国域名 AAAA：
+3. dae DNS response 只拒绝非中国域名 AAAA：
 
 ```text
 response {
@@ -170,7 +172,7 @@ sed -i 's/^  aaaa_disabled: true/  aaaa_disabled: false/' /etc/AdGuardHome-proxy
 
 ## 国外 ADH-proxy 上游要求
 
-`ADH-proxy` 的国外上游必须使用 DoH/DoT，并且它自身的出站连接必须经 daed 代理，避免明文国外 DNS 被污染或超时。当前临时方案使用 IPv4 DoH（CC IPv6 恢复前不放 IPv6 DoH）：
+`ADH-proxy` 的国外上游必须使用 DoH/DoT，并且它自身的出站连接必须经 dae 代理，避免明文国外 DNS 被污染或超时。当前临时方案使用 IPv4 DoH（CC IPv6 恢复前不放 IPv6 DoH）：
 
 ```yaml
 dns:
@@ -183,17 +185,17 @@ dns:
   aaaa_disabled: true
 ```
 
-对应 daed routing 需要有：
+对应 dae routing 需要有：
 
 ```text
-pname(AdGuardHome-direct) -> must_direct
-pname(AdGuardHome-proxy) -> default_vmiss
+pname(AdGuardHome-dir, AdGuardHome-dire) -> must_direct
+pname(AdGuardHome-pro, AdGuardHome-prox) -> default_vmiss
 ```
 
 这样国外 DNS 路径为：
 
 ```text
-client/dnsmasq -> daed DNS -> ADH-proxy :50531 -> DoH(1.1.1.1/8.8.8.8) -> default_vmiss
+client/dnsmasq -> dae DNS -> ADH-proxy :50531 -> DoH(1.1.1.1/8.8.8.8) -> default_vmiss
 ```
 
 国内 `ADH-direct` 也使用并行请求：

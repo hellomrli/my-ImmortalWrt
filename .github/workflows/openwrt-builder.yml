@@ -124,6 +124,10 @@ jobs:
     steps:
     - name: Checkout
       uses: actions/checkout@v4
+      with:
+        # Package Makefiles from cloned third-party repositories run during the
+        # build; do not leave a repository write credential in git config.
+        persist-credentials: false
 
     - name: Init environment
       env:
@@ -155,7 +159,7 @@ jobs:
         path: |
           openwrt/dl
           !openwrt/dl/go-mod-cache
-        key: ${{ runner.os }}-dl-nogomod-${{ matrix.source }}-${{ matrix.branch }}-${{ hashFiles(matrix.config_file, matrix.diy_p1_sh, matrix.diy_p2_sh) }}
+        key: ${{ runner.os }}-dl-nogomod-${{ matrix.source }}-${{ matrix.branch }}-${{ hashFiles(matrix.config_file, matrix.diy_p1_sh, matrix.diy_p2_sh, '.github/scripts/patch-daede-defaults.py') }}
         restore-keys: |
           ${{ runner.os }}-dl-nogomod-${{ matrix.source }}-${{ matrix.branch }}-
           ${{ runner.os }}-dl-nogomod-${{ matrix.source }}-
@@ -165,7 +169,7 @@ jobs:
       uses: actions/cache@v4
       with:
         path: openwrt/.ccache
-        key: ${{ runner.os }}-build-${{ matrix.source }}-${{ matrix.branch }}-${{ hashFiles(matrix.config_file, matrix.diy_p1_sh, matrix.diy_p2_sh) }}
+        key: ${{ runner.os }}-build-${{ matrix.source }}-${{ matrix.branch }}-${{ hashFiles(matrix.config_file, matrix.diy_p1_sh, matrix.diy_p2_sh, '.github/scripts/patch-daede-defaults.py') }}
         restore-keys: |
           ${{ runner.os }}-build-${{ matrix.source }}-${{ matrix.branch }}-
 
@@ -246,7 +250,7 @@ jobs:
           CONFIG_PACKAGE_dae \
           CONFIG_PACKAGE_daed \
           CONFIG_PACKAGE_luci-app-daede \
-          CONFIG_PACKAGE_luci-app-daede_daed; do
+          CONFIG_PACKAGE_luci-app-daede_dae; do
           if ! grep -qx "${symbol}=y" .config; then
             echo "::error::${symbol} is not enabled after make defconfig."
             exit 1
@@ -260,6 +264,28 @@ jobs:
         grep -E '^(PKG_NAME|PKG_VERSION|PKG_RELEASE):=' "$kenzok_dae_makefile"
         grep -E '^(PKG_NAME|PKG_VERSION|PKG_RELEASE):=' "$kenzok_daed_makefile"
         grep -E '^(PKG_NAME|PKG_VERSION|PKG_RELEASE):=' "$kenzok_luci_makefile"
+        patched_defaults="package/dae/luci-app-daede/root/etc/config/daede"
+        patched_generator="package/dae/luci-app-daede/root/usr/share/luci-app-daede/gen-dae-config.sh"
+        echo "Checking local dae + dual AdGuardHome profile patch..."
+        grep -q "option active_backend 'dae'" "$patched_defaults" || {
+          echo "::error::luci-app-daede does not default to the dae backend."
+          exit 1
+        }
+        for expected in \
+          "udp://127.0.0.1:50530" \
+          "udp://127.0.0.1:50531" \
+          "refusing to overwrite unmanaged" \
+          "pname(AdGuardHome-dir, AdGuardHome-dire) -> must_direct" \
+          "pname(AdGuardHome-pro, AdGuardHome-prox) ->"; do
+          if ! grep -Fq "$expected" "$patched_generator"; then
+            echo "::error::Patched dae generator is missing: $expected"
+            exit 1
+          fi
+        done
+        if grep -Fq 'echo "    ipversion_prefer: 4"' "$patched_generator"; then
+          echo "::error::Patched dae generator still forces IPv4-only DNS responses."
+          exit 1
+        fi
         echo "Checking required F2FS overlay bootstrap packages in final .config..."
         for symbol in \
           CONFIG_PACKAGE_kmod-fs-f2fs \
@@ -300,6 +326,21 @@ jobs:
           fi
         done
         sh -n "$backup_helper"
+        sh -n files/etc/init.d/adh-direct files/etc/init.d/adh-proxy files/etc/uci-defaults/99-adh-dual
+        for spec in \
+          "files/etc/AdGuardHome-direct.yaml|127.0.0.1:50080" \
+          "files/etc/AdGuardHome-proxy.yaml|127.0.0.1:50081"; do
+          conf="${spec%%|*}"
+          address="${spec#*|}"
+          grep -Fq "  address: $address" "$conf" || {
+            echo "::error::Unauthenticated default Web UI is not loopback-only in $conf."
+            exit 1
+          }
+        done
+        if grep -Fq -- '--web-addr 192.168.50.1:' files/etc/init.d/adh-direct files/etc/init.d/adh-proxy files/etc/uci-defaults/99-adh-dual; then
+          echo "::error::An init script still overrides the protected AdGuardHome Web address."
+          exit 1
+        fi
         make download -j8
         # Do not carry a downloaded/restored Go module cache into package builds;
         # package compilation will recreate it from a clean state.
