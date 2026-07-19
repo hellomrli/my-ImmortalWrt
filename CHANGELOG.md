@@ -13,6 +13,8 @@
 - 🔄 关闭 ext4 rootfs 与 ext4 文件系统包，Release 仅构建并发布 squashfs 相关镜像和 rootfs.tar.gz。
 
 ### Fixed
+- 💾 关闭 block-mount 的匿名 `auto_mount`，保留唯一的显式 `/boot` 挂载，并通过 uci-defaults 迁移旧配置，避免 `/dev/sda1` 在 `/boot` 上重复挂载。
+- 🌐 修正 ImmortalWrt PPP 脚本对可选 `syncdial` UCI 配置的无条件读取，消除正常 PPPoE 重连时的 `uci: Entry not found` 与 `sh: out of range`。
 - 🔐 全新安装的双 AdGuardHome 配置在没有用户密码哈希时只监听 loopback；升级时若旧 YAML 仍为无用户状态，也会自动收回 LAN 暴露，已有认证配置保持原监听地址。
 - 🛠️ 按当前实机 `dae + 双 AdGuardHome` 链路补丁 `luci-app-daede` 生成器，默认使用 `127.0.0.1:50530/50531`，移除全局 `ipversion_prefer: 4`，并生成 ADH 进程分流规则，避免 LuCI 保存后覆盖有效 DNS 配置。
 - 🛡️ dae 表单生成器拒绝覆盖没有自身生成标记的 `/etc/dae/config.dae`，保护实机中 UCI 表单无法完整表达的手工节点组和 routing 规则。

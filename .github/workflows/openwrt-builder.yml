@@ -159,7 +159,7 @@ jobs:
         path: |
           openwrt/dl
           !openwrt/dl/go-mod-cache
-        key: ${{ runner.os }}-dl-nogomod-${{ matrix.source }}-${{ matrix.branch }}-${{ hashFiles(matrix.config_file, matrix.diy_p1_sh, matrix.diy_p2_sh, '.github/scripts/patch-daede-defaults.py') }}
+        key: ${{ runner.os }}-dl-nogomod-${{ matrix.source }}-${{ matrix.branch }}-${{ hashFiles(matrix.config_file, matrix.diy_p1_sh, matrix.diy_p2_sh, '.github/scripts/patch-daede-defaults.py', '.github/scripts/patch-ppp-syncdial.py') }}
         restore-keys: |
           ${{ runner.os }}-dl-nogomod-${{ matrix.source }}-${{ matrix.branch }}-
           ${{ runner.os }}-dl-nogomod-${{ matrix.source }}-
@@ -169,7 +169,7 @@ jobs:
       uses: actions/cache@v4
       with:
         path: openwrt/.ccache
-        key: ${{ runner.os }}-build-${{ matrix.source }}-${{ matrix.branch }}-${{ hashFiles(matrix.config_file, matrix.diy_p1_sh, matrix.diy_p2_sh, '.github/scripts/patch-daede-defaults.py') }}
+        key: ${{ runner.os }}-build-${{ matrix.source }}-${{ matrix.branch }}-${{ hashFiles(matrix.config_file, matrix.diy_p1_sh, matrix.diy_p2_sh, '.github/scripts/patch-daede-defaults.py', '.github/scripts/patch-ppp-syncdial.py') }}
         restore-keys: |
           ${{ runner.os }}-build-${{ matrix.source }}-${{ matrix.branch }}-
 
@@ -286,6 +286,26 @@ jobs:
           echo "::error::Patched dae generator still forces IPv4-only DNS responses."
           exit 1
         fi
+        ppp_proto="package/network/services/ppp/files/ppp.sh"
+        echo "Checking PPP syncdial probe patch..."
+        if grep -Fq '[ "$(uci get syncdial.config.enabled)" -eq "1" ]' "$ppp_proto"; then
+          echo "::error::PPP syncdial probe still fails when the optional UCI package is absent."
+          exit 1
+        fi
+        grep -Fq '[ "$(uci -q get syncdial.config.enabled 2>/dev/null)" = "1" ]' "$ppp_proto" || {
+          echo "::error::Expected safe PPP syncdial probe is missing."
+          exit 1
+        }
+        custom_fstab="package/base-files/files/etc/config/fstab"
+        grep -Eq "^[[:space:]]*option auto_mount '0'$" "$custom_fstab" || {
+          echo "::error::Anonymous block auto-mount is enabled; /boot may be mounted twice."
+          exit 1
+        }
+        fstab_migration="files/etc/uci-defaults/98-fstab-single-boot"
+        if [ ! -x "$fstab_migration" ] || ! grep -Fq "auto_mount=0" "$fstab_migration"; then
+          echo "::error::The old-fstab migration is missing or not executable."
+          exit 1
+        fi
         echo "Checking required F2FS overlay bootstrap packages in final .config..."
         for symbol in \
           CONFIG_PACKAGE_kmod-fs-f2fs \
@@ -326,7 +346,8 @@ jobs:
           fi
         done
         sh -n "$backup_helper"
-        sh -n files/etc/init.d/adh-direct files/etc/init.d/adh-proxy files/etc/uci-defaults/99-adh-dual
+        sh -n files/etc/init.d/adh-direct files/etc/init.d/adh-proxy \
+          files/etc/uci-defaults/98-fstab-single-boot files/etc/uci-defaults/99-adh-dual
         for spec in \
           "files/etc/AdGuardHome-direct.yaml|127.0.0.1:50080" \
           "files/etc/AdGuardHome-proxy.yaml|127.0.0.1:50081"; do

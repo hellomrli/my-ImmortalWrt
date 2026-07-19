@@ -53,6 +53,8 @@
 - 启用常用 x86 网卡驱动：Intel I225/I226、e1000e、igb、ixgbe、r8125、r8168、vmxnet3 等。
 - 启用 SQM / CAKE / IFB / BBR、nftables flow offload、fullcone、tproxy 等网络组件。
 - 保留 F2FS overlay 初始化工具，避免 squashfs 固件首次启动后落到 tmpfs overlay 导致重启丢配置。
+- `/boot` 只使用显式 fstab 项挂载，关闭匿名 block auto-mount，避免同一 FAT 分区被重复挂载。
+- 修正上游 PPPoE 脚本在未安装可选 `syncdial` 配置时产生的无害但误导性的重连报错。
 - Release 附带最终 `.config` 和 kernel `.config`，方便追踪实际构建配置。
 
 ## 主要组件

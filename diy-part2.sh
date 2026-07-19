@@ -17,6 +17,12 @@ repo_root="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 # Modify default IP
 sed -i 's/192.168.1.1/192.168.50.1/g' package/base-files/files/bin/config_generate
 
+# ImmortalWrt carries an optional concurrent-PPPoE hook that probes a syncdial
+# UCI package even when it is not installed.  Make the probe quiet and use a
+# string comparison so normal PPPoE reconnects do not emit UCI/arithmetic errors.
+python3 "$repo_root/.github/scripts/patch-ppp-syncdial.py" \
+    package/network/services/ppp/files/ppp.sh
+
 # Modify default theme
 #sed -i 's/luci-theme-bootstrap/luci-theme-argon/g' feeds/luci/collections/luci/Makefile
 
@@ -95,7 +101,7 @@ config global
 	option anon_swap '0'
 	option anon_mount '0'
 	option auto_swap '0'
-	option auto_mount '1'
+	option auto_mount '0'
 	option delay_root '5'
 	option check_fs '0'
 

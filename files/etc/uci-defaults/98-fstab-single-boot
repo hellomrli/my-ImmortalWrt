@@ -1,0 +1,14 @@
+#!/bin/sh
+# Older images enabled anonymous auto-mount while also defining an explicit
+# /boot mount.  blockd then mounted /dev/sda1 on /boot twice.  Preserve the
+# explicit mount and disable only anonymous scanning.
+
+set -eu
+
+if uci -q get 'fstab.@global[0]' >/dev/null 2>&1; then
+	uci -q set 'fstab.@global[0].anon_mount=0'
+	uci -q set 'fstab.@global[0].auto_mount=0'
+	uci -q commit fstab
+fi
+
+exit 0
