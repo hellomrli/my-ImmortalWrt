@@ -2,13 +2,14 @@ name: Update README Build Table
 
 on:
   workflow_dispatch:
-  release:
-    types: [published, edited, deleted]
+  # No `release:` trigger: releases here are created by GITHUB_TOKEN, and events
+  # raised by that token do not start workflow runs (workflow_dispatch and
+  # repository_dispatch are the only exceptions).  openwrt-builder.yml therefore
+  # dispatches this workflow explicitly after publishing.
   schedule:
-    - cron: 30 */6 * * *
+    - cron: 30 5 * * *
 
 permissions:
-  actions: read
   contents: write
 
 concurrency:
@@ -43,5 +44,14 @@ jobs:
         git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
         git add README.md
         git commit -m "docs: update firmware build table"
-        git pull --rebase origin main
-        git push
+
+        # Rebase-and-retry: a build job dispatches this workflow, so a push can
+        # race with a concurrent commit on main.
+        for attempt in 1 2 3; do
+          if git push; then
+            exit 0
+          fi
+          echo "push rejected (attempt ${attempt}/3); rebasing onto latest main"
+          git pull --rebase origin main
+        done
+        exit 1

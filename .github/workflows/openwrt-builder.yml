@@ -28,9 +28,10 @@ on:
         default: 'all'
         type: string
 
+# Least privilege by default.  The build job compiles third-party package
+# Makefiles, so only the jobs that actually publish get a write token.
 permissions:
-  actions: write
-  contents: write
+  contents: read
 
 env:
   UPLOAD_BIN_DIR: false
@@ -113,7 +114,16 @@ jobs:
 
   build:
     needs: prepare
+    # Without this, the display name expands to every matrix value including
+    # repo_url and all three script paths.
+    name: build (${{ matrix.source }}/${{ matrix.branch }})
     runs-on: ubuntu-24.04
+    # GitHub hard-kills a job at 6h without running the remaining steps; stop
+    # earlier so the build-log upload below still gets a chance to run.
+    timeout-minutes: 350
+    permissions:
+      contents: write
+      actions: write
     concurrency:
       group: ${{ github.workflow }}-${{ github.ref }}-${{ matrix.source }}-${{ matrix.branch }}
       cancel-in-progress: false
@@ -133,45 +143,72 @@ jobs:
       env:
         DEBIAN_FRONTEND: noninteractive
       run: |
-        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        # An x86_64 build with two Go packages is the workload most likely to
+        # hit ENOSPC on a hosted runner, so reclaim everything not needed here.
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+          /opt/hostedtoolcache/CodeQL /usr/local/share/boost /usr/local/share/powershell \
+          /usr/local/lib/node_modules /opt/az /usr/share/swift
         sudo docker image prune --all --force
-        sudo -E apt-get -qq update
-        sudo -E apt-get -qq install ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential bzip2 ccache clang cmake cpio curl device-tree-compiler fastjar flex gawk gettext gcc-multilib g++-multilib git gperf haveged help2man intltool libc6-dev-i386 libelf-dev libfuse-dev libglib2.0-dev libgmp-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libpython3-dev libreadline-dev libssl-dev libtool llvm npm genisoimage ninja-build p7zip p7zip-full patch pkgconf python3 python3-pyelftools python3-setuptools qemu-utils rsync scons squashfs-tools subversion swig texinfo upx-ucl unzip vim wget xmlto xxd zlib1g-dev
+
+        # apt on hosted runners is a common flake; retry before failing the job.
+        apt_retry() {
+          for attempt in 1 2 3; do
+            if sudo -E apt-get "$@"; then
+              return 0
+            fi
+            echo "apt-get $* failed (attempt $attempt); retrying in 15s"
+            sleep 15
+          done
+          return 1
+        }
+        apt_retry -qq update
+        apt_retry -qq install ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential bzip2 ccache clang cmake cpio curl device-tree-compiler fastjar flex gawk gettext gcc-multilib g++-multilib git gperf haveged help2man intltool libc6-dev-i386 libelf-dev libfuse-dev libglib2.0-dev libgmp-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libpython3-dev libreadline-dev libssl-dev libtool llvm npm genisoimage ninja-build p7zip p7zip-full patch pkgconf python3 python3-pyelftools python3-setuptools qemu-utils rsync scons squashfs-tools subversion swig texinfo upx-ucl unzip vim wget xmlto xxd zlib1g-dev zstd
         sudo npm install -g pnpm
-        sudo -E apt-get -qq autoremove --purge
-        sudo -E apt-get -qq clean
+        apt_retry -qq autoremove --purge
+        apt_retry -qq clean
         sudo timedatectl set-timezone "$TZ"
-        sudo mkdir -p /workdir
-        sudo chown $USER:$GROUPS /workdir
+        df -hT /
 
     - name: Clone source code
       run: |
         df -hT "$PWD"
         git clone --depth 1 ${{ matrix.repo_url }} -b ${{ matrix.branch }} openwrt
+        # Recorded so the update checker's "already built" marker is only
+        # written after this exact upstream commit has published successfully.
+        echo "SOURCE_SHA=$(git -C openwrt rev-parse HEAD)" >> $GITHUB_ENV
 
-    - name: Cache OpenWrt DL
-      uses: actions/cache@v4
-      with:
-        # Cache source archives, but never cache OpenWrt's Go module cache.
-        # The Go helper uses dl/go-mod-cache as GOMODCACHE; if a previous run
-        # saved a partially extracted module directory, daed fails with bogus
-        # missing internal packages such as protobuf/internal/... or lz4/internal/...
-        path: |
-          openwrt/dl
-          !openwrt/dl/go-mod-cache
-        key: ${{ runner.os }}-dl-nogomod-${{ matrix.source }}-${{ matrix.branch }}-${{ hashFiles(matrix.config_file, matrix.diy_p1_sh, matrix.diy_p2_sh, '.github/scripts/patch-daede-defaults.py', '.github/scripts/patch-ppp-syncdial.py') }}
-        restore-keys: |
-          ${{ runner.os }}-dl-nogomod-${{ matrix.source }}-${{ matrix.branch }}-
-          ${{ runner.os }}-dl-nogomod-${{ matrix.source }}-
-          ${{ runner.os }}-dl-nogomod-
-
-    - name: Cache OpenWrt Build
-      uses: actions/cache@v4
+    # The dl/ cache was removed deliberately.  A repository only gets 10 GB of
+    # Actions cache; dl (~2-3 GB) plus ccache (~2-5 GB) times two branches blows
+    # that budget and evicts entries that matter more -- including the update
+    # checker's commit markers, whose loss triggers pointless rebuilds.
+    # Re-downloading sources costs minutes; a cold ccache costs hours.
+    # Dropping dl/ also retires the go-mod-cache exclusion that kept poisoning
+    # daed builds with bogus "missing internal package" errors.
+    # Explicit restore/save instead of actions/cache: that action's post step is
+    # post-if: success(), so a build that failed after two hours contributed
+    # nothing and the retry started just as cold.
+    #
+    # The key is deliberately run-unique with a plain prefix for restore.  The
+    # old key was a hash of the config and build scripts, which meant the
+    # primary key always hit, actions/cache skipped the save entirely, and the
+    # ccache stayed frozen at whatever the very first build produced while
+    # upstream master moved on every 6 hours.  No content hash is needed here:
+    # ccache is content-addressed internally, so a stale entry is simply unused
+    # rather than wrong, and editing .config no longer throws away a warm cache.
+    - name: Restore ccache
+      uses: actions/cache/restore@v4
       with:
         path: openwrt/.ccache
-        key: ${{ runner.os }}-build-${{ matrix.source }}-${{ matrix.branch }}-${{ hashFiles(matrix.config_file, matrix.diy_p1_sh, matrix.diy_p2_sh, '.github/scripts/patch-daede-defaults.py', '.github/scripts/patch-ppp-syncdial.py') }}
+        key: ${{ runner.os }}-ccache-${{ matrix.source }}-${{ matrix.branch }}-${{ github.run_id }}
         restore-keys: |
-          ${{ runner.os }}-build-${{ matrix.source }}-${{ matrix.branch }}-
+          ${{ runner.os }}-ccache-${{ matrix.source }}-${{ matrix.branch }}-
+
+    - name: Bound ccache size
+      run: |
+        mkdir -p openwrt/.ccache
+        # Two branches share one 10 GB repository budget; keep each entry small
+        # enough that a few generations coexist instead of evicting each other.
+        printf 'max_size = 2.0G\ncompression = true\n' > openwrt/.ccache/ccache.conf
 
     - name: Load custom feeds
       run: |
@@ -330,6 +367,8 @@ jobs:
           echo "::error::${backup_helper} is missing or not executable."
           exit 1
         fi
+        # Required minimum; keep.d may list more. The helper reads keep.d at
+        # runtime, so this is the only place the required set is spelled out.
         for keep_path in \
           /etc/config/dae \
           /etc/config/daed \
@@ -338,13 +377,19 @@ jobs:
           /etc/daed \
           /etc/AdGuardHome-direct.yaml \
           /etc/AdGuardHome-proxy.yaml \
+          /etc/config/lucky \
           /etc/config/lucky.daji \
-          /etc/config/watchdog; do
+          /etc/config/watchdog \
+          /etc/crontabs/root; do
           if ! grep -qx "$keep_path" "$keep_list"; then
             echo "::error::${keep_path} is missing from ${keep_list}; plugin runtime configuration may be lost during sysupgrade."
             exit 1
           fi
         done
+        grep -Fq '/lib/upgrade/keep.d/my-immortalwrt' "$backup_helper" || {
+          echo "::error::${backup_helper} no longer reads the retention list; the two would drift apart again."
+          exit 1
+        }
         sh -n "$backup_helper"
         sh -n files/etc/init.d/adh-direct files/etc/init.d/adh-proxy \
           files/etc/uci-defaults/98-fstab-single-boot files/etc/uci-defaults/99-adh-dual
@@ -362,16 +407,38 @@ jobs:
           echo "::error::An init script still overrides the protected AdGuardHome Web address."
           exit 1
         fi
-        make download -j8
-        # Do not carry a downloaded/restored Go module cache into package builds;
+        for attempt in 1 2 3; do
+          if make download -j"$(nproc)"; then
+            break
+          fi
+          echo "make download failed (attempt ${attempt}/3); retrying in 15s"
+          sleep 15
+        done
+
+        # Do not carry a downloaded Go module cache into package builds;
         # package compilation will recreate it from a clean state.
         rm -rf dl/go-mod-cache tmp/go-build
-        find dl -size -1024c -exec ls -l {} \;
-        find dl -size -1024c -exec rm -f {} \;
-        find dl -size -1024c -print -quit | grep -q . && { echo "Small/invalid download files remain after cleanup"; exit 1; } || true
+
+        # Drop truncated artefacts, then download again so they are actually
+        # refetched here.  Previously they were deleted and never replaced, which
+        # pushed the refetch into the compile stage as a serial download.
+        find dl -type f -size -1024c -print -delete
+        make download -j"$(nproc)"
+        rm -rf dl/go-mod-cache tmp/go-build
+
+        if find dl -type f -size -1024c -print -quit | grep -q .; then
+          echo "::error::Truncated download files remain after refetch:"
+          find dl -type f -size -1024c -print
+          exit 1
+        fi
 
     - name: Compile firmware
       id: compile
+      # Leaves ~30 min of the job budget for uploading logs, artifacts and the
+      # release.  A step timeout marks the step failed (unlike a job timeout,
+      # which cancels and skips the remaining steps), so the build-log upload
+      # below still runs.
+      timeout-minutes: 320
       run: |
         cd openwrt
         clean_go_caches() {
@@ -379,43 +446,71 @@ jobs:
           rm -rf build_dir/target-*/daed-* build_dir/target-*/AdGuardHome-* build_dir/target-*/adguardhome-*
         }
 
-        echo -e "$(nproc) thread compile"
+        echo "$(nproc) thread compile"
         echo "===================="
         echo "Build started at: $(date '+%Y-%m-%d %H:%M:%S')"
         echo "Source: ${{ matrix.source }}"
         echo "Branch: ${{ matrix.branch }}"
         echo "===================="
+        df -hT "$PWD"
 
-        clean_go_caches
-        if make -j$(nproc); then
-          echo "✅ Multi-thread build successful"
-        else
-          echo "⚠️ Multi-thread build failed; retrying single-thread after cleaning Go caches"
+        # Retry strategy, in order of cost.  Every attempt is incremental --
+        # no `make clean` -- because a from-scratch single-thread rebuild cannot
+        # finish inside a hosted runner's 6h limit and only ever burned the job.
+        #   1. parallel build
+        #   2. plain parallel retry: most failures here are ordering races
+        #      between packages, and the retry only redoes what actually failed
+        #   3. single-thread with V=s, purely to get a readable log for the one
+        #      failing package; CONFIG_BUILD_LOG also captures logs/ regardless
+        build_ok=0
+        for attempt in 1 2; do
           clean_go_caches
-          if make -j1 V=s; then
-            echo "⚠️ Single-thread build successful (multi-thread failed)"
-          else
-            echo "⚠️ Single-thread build failed; running make clean and retrying after cleaning Go caches"
-            make clean
-            clean_go_caches
-            if make -j1 V=s; then
-              echo "⚠️ Build successful after clean (previous attempts failed)"
-            else
-              echo "❌ All build attempts failed"
-              exit 1
-            fi
+          if make -j"$(nproc)"; then
+            build_ok=1
+            echo "✅ Parallel build successful (attempt ${attempt})"
+            break
           fi
+          echo "⚠️ Parallel build attempt ${attempt}/2 failed"
+        done
+
+        if [ "$build_ok" -ne 1 ]; then
+          echo "⚠️ Falling back to an incremental single-thread build for a readable log"
+          clean_go_caches
+          make -j1 V=s
+          echo "⚠️ Single-thread build successful (parallel attempts failed)"
         fi
 
         echo "===================="
         echo "Build completed at: $(date '+%Y-%m-%d %H:%M:%S')"
         echo "===================="
         echo "status=success" >> $GITHUB_OUTPUT
-        grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME
-        [ -s DEVICE_NAME ] && echo "DEVICE_NAME=_$(cat DEVICE_NAME)" >> $GITHUB_ENV
+        # Join on '-': a multi-line value would corrupt $GITHUB_ENV.
+        device_name="$(grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' | paste -sd '-' -)"
+        [ -n "$device_name" ] && echo "DEVICE_NAME=_${device_name}" >> $GITHUB_ENV
         echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
         echo "SOURCE_NAME=${{ matrix.source }}" >> $GITHUB_ENV
         echo "BRANCH_NAME=${{ matrix.branch }}" >> $GITHUB_ENV
+
+    # Save even when the compile failed: a partially warmed ccache still makes
+    # the next attempt materially faster.
+    - name: Save ccache
+      uses: actions/cache/save@v4
+      if: ${{ !cancelled() }}
+      continue-on-error: true
+      with:
+        path: openwrt/.ccache
+        key: ${{ runner.os }}-ccache-${{ matrix.source }}-${{ matrix.branch }}-${{ github.run_id }}
+
+    - name: Upload build logs
+      uses: actions/upload-artifact@v4
+      if: failure() && steps.compile.outcome == 'failure'
+      with:
+        name: build-logs_${{ matrix.source }}_${{ matrix.branch }}
+        path: |
+          openwrt/logs
+          openwrt/.config
+        retention-days: 14
+        if-no-files-found: warn
 
     - name: Check space
       if: (!cancelled())
@@ -479,6 +574,9 @@ jobs:
         fi
         rm -rf packages
         cp -f ../../../../.config "${{ matrix.source }}-${{ matrix.branch }}.config" 2>/dev/null || true
+        # Ship the resolved third-party package sources with the firmware so a
+        # released image can be traced back to exact mirror/upstream commits.
+        cp -f ../../../../package-provenance.txt "${{ matrix.source }}-${{ matrix.branch }}_packages.txt" 2>/dev/null || true
         kernel_config="$(find ../../../../build_dir -path '*/linux-*/linux-*/.config' -type f -print -quit 2>/dev/null || true)"
         [ -n "$kernel_config" ] && cp -f "$kernel_config" "${{ matrix.source }}-${{ matrix.branch }}_kernel.config" || true
         echo "Published firmware files:"
@@ -492,6 +590,9 @@ jobs:
       with:
         name: OpenWrt_firmware_${{ env.SOURCE_NAME }}_${{ env.BRANCH_NAME }}${{ env.FILE_DATE }}
         path: ${{ env.FIRMWARE }}
+        # These same files are attached to the release below; the artifact is
+        # only a short-lived convenience, so do not hold storage quota for 90d.
+        retention-days: 7
 
     - name: Generate release tag
       id: tag
@@ -504,7 +605,7 @@ jobs:
         echo "🔹 **镜像名**: \`${{ matrix.source }}\`" >> release.txt
         echo "🔹 **上游**: ImmortalWrt" >> release.txt
         echo "🔹 **分支**: \`${{ matrix.branch }}\`" >> release.txt
-        echo "🔹 **Dae / Daed / LuCI 源**: \`kenzok8/openwrt-daede\`" >> release.txt
+        echo "🔹 **Dae / Daed / LuCI 源**: \`kenzok8/openwrt-daede\`（经 \`hellomrli/my-openwrt-packages\` 镜像）" >> release.txt
         echo "🔹 **ADH 运行时**: \`adguardhome\`（双实例，不使用 luci-app-adguardhome）" >> release.txt
         echo "🔹 **Golang**: ImmortalWrt 官方 \`packages/lang/golang\`（Go 1.26.x）" >> release.txt
         echo "🔹 **构建日期**: $(date '+%Y-%m-%d %H:%M:%S')" >> release.txt
@@ -521,6 +622,13 @@ jobs:
         echo "- Watchdog" >> release.txt
         echo "- SQM / UPnP" >> release.txt
         echo "- openssh-sftp-server" >> release.txt
+        if [ -s openwrt/package-provenance.txt ]; then
+          echo "" >> release.txt
+          echo "### 第三方包来源" >> release.txt
+          echo '```' >> release.txt
+          cat openwrt/package-provenance.txt >> release.txt
+          echo '```' >> release.txt
+        fi
         echo "" >> release.txt
         echo "📖 [完整文档](https://github.com/hellomrli/my-ImmortalWrt/blob/main/README.md)" >> release.txt
         echo "" >> release.txt
@@ -540,6 +648,26 @@ jobs:
         tag_name: ${{ steps.tag.outputs.release_tag }}
         body_path: release.txt
         files: ${{ env.FIRMWARE }}/*
+
+    # The update checker used to cache this marker itself, right after
+    # dispatching -- so a build that failed was still recorded as "done" and was
+    # never retried until upstream happened to push again.  Write it here, only
+    # once this exact upstream commit has actually produced a release.
+    - name: Mark upstream commit as built
+      id: mark
+      if: steps.organize.outputs.status == 'success' && steps.tag.outputs.status == 'success' && !cancelled()
+      run: |
+        mkdir -p .commitHash
+        echo "${{ matrix.source }}/${{ matrix.branch }}=${SOURCE_SHA}" \
+          > ".commitHash/${{ matrix.source }}-${{ matrix.branch }}"
+
+    - name: Save built-commit marker
+      uses: actions/cache/save@v4
+      if: steps.mark.outcome == 'success' && !cancelled()
+      continue-on-error: true
+      with:
+        path: .commitHash/${{ matrix.source }}-${{ matrix.branch }}
+        key: commitHash_${{ matrix.source }}_${{ matrix.branch }}_${{ env.SOURCE_SHA }}
 
     - name: Refresh README build table
       if: steps.organize.outputs.status == 'success' && steps.tag.outputs.status == 'success' && !cancelled()
@@ -563,12 +691,16 @@ jobs:
     needs: build
     if: always()
     runs-on: ubuntu-24.04
+    permissions:
+      actions: write
     steps:
     - name: Delete workflow runs
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
+        # Keep 20, not 2.  Build logs are the only way to diagnose a cloud
+        # build, and deleting them two runs later made failures unreviewable.
         gh run list --repo="${{ github.repository }}" --workflow="${{ github.workflow }}" --limit 100 --json databaseId,status --jq '.[] | select(.status != "in_progress") | .databaseId' > old-runs.txt
-        tail -n +3 old-runs.txt | while read -r run_id; do
+        tail -n +21 old-runs.txt | while read -r run_id; do
           [ -n "$run_id" ] && gh run delete --repo="${{ github.repository }}" "$run_id" || true
         done

@@ -151,6 +151,38 @@ ssh -L 50080:127.0.0.1:50080 -L 50081:127.0.0.1:50081 root@192.168.50.1
 - 构建脚本不再覆盖 `feeds/packages/lang/golang`，由 ImmortalWrt 官方 Go helper 编译 kenzok8 的 `dae` 与 `daed` 包。
 - 不再通过 `actions/setup-go` 强制外部 bootstrap，按官方 Golang 包自身逻辑处理 Go bootstrap。
 
+## 第三方包来源
+
+固件编译用到的第三方包不再直接克隆上游，而是走个人镜像仓库
+[`hellomrli/my-openwrt-packages`](https://github.com/hellomrli/my-openwrt-packages)。
+上游删库、改名或转为私有时，构建仍然可以继续。
+
+| 包 | 镜像路径 | 上游 |
+| --- | --- | --- |
+| `dae` / `daed` / `luci-app-daede` | `openwrt-daede` | `kenzok8/openwrt-daede` |
+| `lucky` / `luci-app-lucky` | `luci-app-lucky` | `gdy666/luci-app-lucky` |
+| `watchdog` / `luci-app-watchdog` | `luci-app-watchdog` | `sirpdboy/luci-app-watchdog` |
+
+包清单是 [`.github/packages.json`](.github/packages.json)，由
+[`.github/scripts/fetch-packages.py`](.github/scripts/fetch-packages.py) 在构建时落地：
+
+- **只抽取清单里列出的子目录**，不整仓克隆进 `package/`。镜像同时保存了本固件不编译的包
+  （`golang`、`adguardhome-dual`、`openclash`、`passwall` 等），整仓引入会和
+  `feeds/packages/lang/golang` 以及本固件基于 overlay 的双 ADH 方案冲突。
+- **镜像优先，上游兜底**：镜像不可达或尚未收录某个包时，回退直连上游并打印
+  `::warning::`，构建不中断。
+- 落地后校验每个包的必需 `Makefile`，并把实际来源和 commit 写进
+  `package-provenance.txt`，随 Release 一起发布。
+
+上游改动打断构建时，可以把 `.github/packages.json` 里的 `mirror.ref` 从 `main`
+改成某个已知可用的 commit SHA，一次性冻结全部第三方包；也可以用环境变量临时覆盖：
+
+```sh
+PKG_MIRROR_REF=<commit>  # 冻结镜像版本
+PKG_SOURCE=upstream      # 绕过镜像直连上游
+PKG_SOURCE=mirror        # 强制只用镜像，缺包即失败
+```
+
 ## 配置保留与升级
 
 ### 固件内的保护
@@ -253,3 +285,4 @@ uci show dhcp >/dev/null
 - [OpenWrt packages](https://github.com/openwrt/packages)
 - [gdy666/luci-app-lucky](https://github.com/gdy666/luci-app-lucky)
 - [sirpdboy/luci-app-watchdog](https://github.com/sirpdboy/luci-app-watchdog)
+- [hellomrli/my-openwrt-packages](https://github.com/hellomrli/my-openwrt-packages)（第三方包镜像）

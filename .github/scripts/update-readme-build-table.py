@@ -60,22 +60,6 @@ def latest_releases():
     return result
 
 
-def active_builds():
-    active = set()
-    runs = api("/actions/workflows/openwrt-builder.yml/runs?status=in_progress&per_page=20").get("workflow_runs", [])
-    runs += api("/actions/workflows/openwrt-builder.yml/runs?status=queued&per_page=20").get("workflow_runs", [])
-
-    for run in runs:
-        jobs = api(f"/actions/runs/{run['id']}/jobs?per_page=100").get("jobs", [])
-        for job in jobs:
-            name = job.get("name", "")
-            for target in TARGETS:
-                marker = f"build ({target['source']}, {target['branch']},"
-                if marker in name and job.get("status") in {"queued", "in_progress"}:
-                    active.add((target["source"], target["branch"]))
-    return active
-
-
 def format_time(value):
     if not value:
         return "-"
@@ -85,7 +69,6 @@ def format_time(value):
 
 def build_table():
     releases = latest_releases()
-    active = active_builds()
 
     lines = [
         "| 构建目标 | 构建状态 | 最新版本 | 发布时间 | Release | 推荐下载 |",
@@ -94,8 +77,11 @@ def build_table():
 
     for target in TARGETS:
         release = releases[target["tag_prefix"]]
-        is_active = (target["source"], target["branch"]) in active
-        status = "构建中" if is_active else ("已发布" if release else "暂无 Release")
+        # Deliberately derived from released state only.  Reporting a live
+        # "构建中" made this table flip several times per build cycle, and each
+        # flip was a committed README change -- most of this repository's
+        # history was build-table churn.
+        status = "已发布" if release else "暂无 Release"
 
         if release:
             tag = release["tag_name"]

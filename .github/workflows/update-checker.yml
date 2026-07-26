@@ -13,8 +13,7 @@
 name: Update Checker
 
 permissions:
-  actions: write
-  contents: write
+  contents: read
 
 on:
   workflow_dispatch:
@@ -23,7 +22,9 @@ on:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -51,14 +52,19 @@ jobs:
         echo "${{ matrix.source }}/${{ matrix.branch }}=$commit_hash" > ".commitHash/${{ matrix.source }}-${{ matrix.branch }}"
         echo "commitHash=$commit_hash" >> $GITHUB_OUTPUT
 
+    # Look up only.  The marker is written by openwrt-builder.yml after a
+    # release is actually published, so a failed build stays "not built" and
+    # gets retried on the next check instead of waiting for a new upstream
+    # commit that may be days away.
     - name: Compare Commit Hash
       id: cacheHash
-      uses: actions/cache@v4
+      uses: actions/cache/restore@v4
       with:
         path: .commitHash/${{ matrix.source }}-${{ matrix.branch }}
         key: commitHash_${{ matrix.source }}_${{ matrix.branch }}_${{ steps.getHash.outputs.commitHash }}
+        lookup-only: true
 
-    - name: Save New Commit Hash
+    - name: Report new commit
       if: steps.cacheHash.outputs.cache-hit != 'true'
       run: |
         cat ".commitHash/${{ matrix.source }}-${{ matrix.branch }}"
@@ -74,13 +80,15 @@ jobs:
   cleanup-runs:
     needs: check
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: write
     steps:
     - name: Delete workflow runs
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         gh run list --repo="${{ github.repository }}" --workflow="${{ github.workflow }}" --limit 100 --json databaseId,status --jq '.[] | select(.status != "in_progress") | .databaseId' > old-runs.txt
-        tail -n +3 old-runs.txt | while read -r run_id; do
+        tail -n +11 old-runs.txt | while read -r run_id; do
           [ -n "$run_id" ] && gh run delete --repo="${{ github.repository }}" "$run_id" || true
         done

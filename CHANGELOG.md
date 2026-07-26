@@ -4,6 +4,20 @@
 
 ## [Unreleased]
 
+### CI / 构建可靠性
+- 🧱 第三方包改为经个人镜像 `hellomrli/my-openwrt-packages` 获取（清单见 `.github/packages.json`），上游删库/改名/转私有不再中断构建；镜像不可达时自动回退上游并告警。只抽取清单内的子目录，避免镜像中未使用的 `golang` / `adguardhome-dual` 等包与官方 feed 和本固件 overlay 方案冲突。
+- ⚡ 修复 ccache 缓存**从第二次构建起永不更新**的问题：原 key 只由配置文件内容哈希决定，主 key 必然命中，`actions/cache` 因此跳过保存，ccache 长期停留在首次构建的内容。改为 key 追加 `run_id` 轮转 + 前缀 `restore-keys`。
+- ⚡ 移除 `dl/` 缓存：仓库缓存总配额只有 10 GB，`dl` + ccache × 2 分支必然超额并触发 LRU 驱逐（连带挤掉 update-checker 的 commit 标记，导致上游没更新也重复构建）。重新下载只花几分钟，冷 ccache 要花几小时。顺带移除了曾两次引发 daed 构建错误的 `go-mod-cache` 排除逻辑。
+- ⏱️ 重写编译重试策略：原「多线程 → 单线程全量 → `make clean` + 单线程全量」中，第三档在 runner 的 6 小时上限内不可能完成，只会白烧一整个 runner。改为「并行 → 并行增量重试 → 单线程 `V=s` 增量」，全部增量执行，并给编译步骤加 320 分钟上限（步骤级超时会保留后续步骤，job 级超时不会）。
+- 🪵 启用 `CONFIG_BUILD_LOG`，构建失败时把 `logs/` 和 `.config` 作为 artifact 上传，不必再靠整轮 `make -j1 V=s` 重跑取日志。
+- 🔁 「已构建」标记改由构建成功后写入：原先 update-checker 在 dispatch 之后立刻缓存 commit hash，构建失败也算已完成，必须等上游再次提交才会重试。
+- 💽 移除从未被使用的 `/workdir`（P3TERX 模板残留），并清理更多预装目录；编译前后都输出 `df`。
+- 🔐 workflow 权限收敛为默认 `contents: read`，仅发布相关 job 提升；`apt-get`、`make download`、README 推送均加入重试；`make download` 删除截断文件后会重新下载，不再把补下载推迟到编译阶段。
+- 🧹 保留 20 条构建运行记录（原为 2 条，失败日志几乎立刻被删导致无法排障）。
+- 📉 README 构建表去掉实时「构建中」状态：该瞬时状态每个构建周期产生 4-5 个提交，仓库历史绝大部分是表格抖动。同时移除失效的 `release:` 触发器（GITHUB_TOKEN 创建的 release 不会触发 workflow）。
+- 🗑️ 删除已死且已漂移的 `diy-part2.sh`（缺少 `openssh-sftp-server` / `adguardhome` 的强制启用）。
+- 🔗 `99-adh-dual` 改为从 `/rom` 恢复 init 脚本，`my-sysupgrade-backup` 改为直接读 `/lib/upgrade/keep.d/my-immortalwrt`，消除同一份内容的三处重复；CI 断言补齐原先遗漏的 `/etc/config/lucky` 与 `/etc/crontabs/root`。
+
 ### Changed
 - 🔄 构建矩阵收敛为两个正式 ImmortalWrt 固件：`immortalwrt/master` 与 `immortalwrt/openwrt-25.12`；产物名称不再使用 `immortalwrt-daed` 后缀。
 - 🔄 固件内容统一按当前 `192.168.50.1` 路由器软件结构构建：Daed + 双 AdGuardHome + Lucky + Watchdog + SQM + UPnP + SFTP。

@@ -1,0 +1,55 @@
+{
+  "_comment": [
+    "Third-party packages that this firmware compiles from source.",
+    "They are mirrored into hellomrli/my-openwrt-packages on a schedule so an",
+    "upstream repository being deleted, renamed or made private cannot break the",
+    "build.  fetch-packages.py prefers the mirror and only falls back to upstream",
+    "when the mirror does not carry a package yet.",
+    "",
+    "Set mirror.ref to a commit SHA to freeze every third-party package at a",
+    "known-good state when an upstream change breaks the build."
+  ],
+  "mirror": {
+    "repo": "https://github.com/hellomrli/my-openwrt-packages.git",
+    "ref": "main"
+  },
+  "packages": [
+    {
+      "name": "openwrt-daede",
+      "description": "dae + daed + luci-app-daede",
+      "target": "package/dae",
+      "mirror_path": "openwrt-daede",
+      "upstream": "https://github.com/kenzok8/openwrt-daede.git",
+      "upstream_ref": null,
+      "require": [
+        "dae/Makefile",
+        "daed/Makefile",
+        "luci-app-daede/Makefile"
+      ]
+    },
+    {
+      "name": "luci-app-lucky",
+      "description": "Lucky runtime + LuCI app",
+      "target": "package/lucky",
+      "mirror_path": "luci-app-lucky",
+      "upstream": "https://github.com/gdy666/luci-app-lucky.git",
+      "upstream_ref": null,
+      "require": [
+        "lucky/Makefile",
+        "luci-app-lucky/Makefile"
+      ]
+    },
+    {
+      "name": "luci-app-watchdog",
+      "description": "Watchdog runtime + LuCI app",
+      "target": "package/watchdog",
+      "mirror_path": "luci-app-watchdog",
+      "upstream": "https://github.com/sirpdboy/luci-app-watchdog.git",
+      "upstream_ref": null,
+      "require": [
+        "watchdog/Makefile",
+        "luci-app-watchdog/Makefile"
+      ]
+    }
+  ]
+}

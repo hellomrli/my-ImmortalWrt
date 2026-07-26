@@ -29,16 +29,15 @@ python3 "$repo_root/.github/scripts/patch-ppp-syncdial.py" \
 # Modify hostname
 #sed -i 's/OpenWrt/P3TERX-Router/g' package/base-files/files/bin/config_generate
 
-# 1. 拉取第三方插件源头仓库（不再克隆个人聚合包仓库）。
+# 1. 从项目包镜像 hellomrli/my-openwrt-packages 取第三方插件。
+# 镜像每 6 小时同步一次上游，上游删库/改名/转私有时构建仍可继续；只有镜像本身
+# 不可达才回退直连上游。包清单见 .github/packages.json。
 rm -rf \
     package/lucky \
     package/watchdog \
     package/dae \
     package/luci-app-daed \
     package/luci-app-daede
-
-git clone --depth 1 https://github.com/gdy666/luci-app-lucky.git package/lucky
-git clone --depth 1 https://github.com/sirpdboy/luci-app-watchdog.git package/watchdog
 
 # kenzok8/openwrt-daede 同时提供 dae、daed 和 luci-app-daede。移除 feeds
 # 生成的所有潜在同名/旧版入口，确保包扫描只能选择 kenzok8 的定义。
@@ -48,8 +47,10 @@ rm -rf \
     package/feeds/luci/luci-app-daed \
     package/feeds/luci/luci-app-daede
 
-git clone --depth 1 \
-    https://github.com/kenzok8/openwrt-daede.git package/dae
+python3 "$repo_root/.github/scripts/fetch-packages.py" \
+    --config "$repo_root/.github/packages.json" \
+    --tree "$PWD" \
+    --provenance "$PWD/package-provenance.txt"
 
 python3 "$repo_root/.github/scripts/patch-daede-defaults.py" package/dae
 
@@ -63,11 +64,12 @@ for makefile in "$kenzok_dae_makefile" "$kenzok_daed_makefile" "$kenzok_luci_mak
         exit 1
     fi
 done
-if [ "$(git -C package/dae remote get-url origin)" != "https://github.com/kenzok8/openwrt-daede.git" ] ||
-   ! grep -q '^PKG_NAME:=dae$' "$kenzok_dae_makefile" ||
+# fetch-packages.py 已校验来源和必需文件；这里再确认包名，确保镜像里放的确实是
+# openwrt-daede 而不是同路径的其它 dae 变体。
+if ! grep -q '^PKG_NAME:=dae$' "$kenzok_dae_makefile" ||
    ! grep -q '^PKG_NAME:=daed$' "$kenzok_daed_makefile" ||
    ! grep -q '^PKG_NAME:=luci-app-daede$' "$kenzok_luci_makefile"; then
-    echo "ERROR: package/dae is not the expected kenzok8/openwrt-daede source" >&2
+    echo "ERROR: package/dae is not the expected openwrt-daede source" >&2
     exit 1
 fi
 for official_entry in \
@@ -148,12 +150,19 @@ for symbol in \
     ensure_config_enabled "$symbol"
 done
 
+# 开启 per-package 构建日志。云端 runner 有 6 小时上限，用整轮 `make -j1 V=s`
+# 重跑来取错误日志的代价太高；logs/ 会在构建失败时作为 artifact 上传。
+ensure_config_enabled CONFIG_BUILD_LOG
+
 # 6. 构建信息输出
 echo "===================="
 echo "ImmortalWrt Custom Build Info"
 echo "Branch: $(git -C . describe --tags --always 2>/dev/null || echo 'unknown')"
 echo "Build Date: $(date '+%Y-%m-%d %H:%M:%S')"
 echo "Build Host: GitHub Actions"
+if [ -s package-provenance.txt ]; then
+    cat package-provenance.txt
+fi
 echo "===================="
 
 # 7. 创建版本标识文件（注入到固件）

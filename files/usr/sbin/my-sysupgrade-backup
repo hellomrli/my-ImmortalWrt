@@ -49,6 +49,36 @@ command -v sysupgrade >/dev/null 2>&1 || {
 	exit 1
 }
 
+# Read the paths to verify straight from the firmware's retention list instead
+# of keeping a second copy here; the two used to drift silently.
+keep_list=/lib/upgrade/keep.d/my-immortalwrt
+[ -r "$keep_list" ] || {
+	echo "ERROR: project retention list is missing: $keep_list" >&2
+	exit 1
+}
+project_paths=$(sed -e 's/#.*//' -e 's/[[:space:]]//g' "$keep_list" | grep -v '^$' || true)
+[ -n "$project_paths" ] || {
+	echo "ERROR: project retention list is empty: $keep_list" >&2
+	exit 1
+}
+
+# Report project paths that exist on disk but are absent from a listing.
+check_listed() {
+	label="$1"
+	listing="$2"
+	missing=0
+	for path in $project_paths; do
+		[ -e "$path" ] || continue
+		rel=${path#/}
+		if ! grep -F -x "$rel" "$listing" >/dev/null 2>&1 && \
+		   ! grep -F "${rel}/" "$listing" >/dev/null 2>&1; then
+			echo "ERROR: existing path is absent from the ${label}: $path" >&2
+			missing=1
+		fi
+	done
+	[ "$missing" -eq 0 ]
+}
+
 if mount | grep -q 'overlayfs:/tmp/root on / type overlay'; then
 	echo "WARNING: / is using a temporary RAM overlay; copy this backup off-device immediately." >&2
 elif ! mount | grep -q ' on /overlay type '; then
@@ -63,28 +93,7 @@ trap 'rm -f "$list_file" "$archive_list"' EXIT HUP INT TERM
 # /etc that an older firmware did not yet list in keep.d or sysupgrade.conf.
 sysupgrade -c -l | sed 's#^/##' > "$list_file"
 
-missing=0
-for path in \
-	/etc/config/dae \
-	/etc/config/daed \
-	/etc/config/daede \
-	/etc/dae \
-	/etc/daed \
-	/etc/AdGuardHome-direct.yaml \
-	/etc/AdGuardHome-proxy.yaml \
-	/etc/config/lucky \
-	/etc/config/lucky.daji \
-	/etc/config/watchdog \
-	/etc/crontabs/root; do
-	[ -e "$path" ] || continue
-	rel=${path#/}
-	if ! grep -F -x "$rel" "$list_file" >/dev/null 2>&1 && \
-	   ! grep -F "${rel}/" "$list_file" >/dev/null 2>&1; then
-		echo "ERROR: existing path is absent from the backup list: $path" >&2
-		missing=1
-	fi
-done
-[ "$missing" -eq 0 ] || exit 1
+check_listed "backup list" "$list_file" || exit 1
 
 sysupgrade -c -k -b "$backup"
 [ -s "$backup" ] || {
@@ -101,28 +110,7 @@ if ! grep -F -x "etc/backup/installed_packages.txt" "$archive_list" >/dev/null 2
 	exit 1
 fi
 
-missing=0
-for path in \
-	/etc/config/dae \
-	/etc/config/daed \
-	/etc/config/daede \
-	/etc/dae \
-	/etc/daed \
-	/etc/AdGuardHome-direct.yaml \
-	/etc/AdGuardHome-proxy.yaml \
-	/etc/config/lucky \
-	/etc/config/lucky.daji \
-	/etc/config/watchdog \
-	/etc/crontabs/root; do
-	[ -e "$path" ] || continue
-	rel=${path#/}
-	if ! grep -F -x "$rel" "$archive_list" >/dev/null 2>&1 && \
-	   ! grep -F "${rel}/" "$archive_list" >/dev/null 2>&1; then
-		echo "ERROR: existing path is absent from the archive: $path" >&2
-		missing=1
-	fi
-done
-[ "$missing" -eq 0 ] || exit 1
+check_listed "archive" "$archive_list" || exit 1
 
 printf '\nBackup created and verified:\n  %s\n' "$backup"
 printf 'SHA256: '
