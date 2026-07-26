@@ -528,7 +528,34 @@ jobs:
       if: steps.compile.outputs.status == 'success' && env.UPLOAD_FIRMWARE == 'true' && !cancelled()
       run: |
         cd openwrt/bin/targets/*/*
-        rm -f ./*ext4*.img ./*ext4*.img.gz
+
+        # Drop an artifact and keep sha256sums consistent with what is published.
+        drop_artifact() {
+          local file
+          for file in "$@"; do
+            [ -e "$file" ] || continue
+            echo "Dropping artifact: ${file#./}"
+            rm -f "$file"
+            [ -f sha256sums ] && sed -i "\| \*$(basename "$file")\$|d" sha256sums
+          done
+        }
+
+        drop_artifact ./*ext4*.img ./*ext4*.img.gz
+
+        # CONFIG_TARGET_ROOTFS_TARGZ emits the same archive under two names
+        # (<profile>-rootfs.tar.gz and <profile>-targz-rootfs.tar.gz), which
+        # published ~81 MiB of identical bytes twice per build.  Only drop the
+        # duplicate once the contents are proven equal, so an upstream change
+        # that makes them differ is not silently discarded.
+        primary="$(find . -maxdepth 1 -type f -name '*-rootfs.tar.gz' ! -name '*targz-rootfs.tar.gz' -print -quit)"
+        duplicate="$(find . -maxdepth 1 -type f -name '*targz-rootfs.tar.gz' -print -quit)"
+        if [ -n "$primary" ] && [ -n "$duplicate" ]; then
+          if cmp -s "$primary" "$duplicate"; then
+            drop_artifact "$duplicate"
+          else
+            echo "::warning::${duplicate#./} differs from ${primary#./}; publishing both."
+          fi
+        fi
         if ! find . -maxdepth 1 -type f -name '*squashfs-combined*.img.gz' -print -quit | grep -q .; then
           echo "No squashfs combined image was generated; refusing to publish incomplete firmware. Directory contents:"
           find . -maxdepth 1 -type f -printf '%f\n' | sort
