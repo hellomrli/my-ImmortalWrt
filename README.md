@@ -187,6 +187,56 @@ GitHub 托管 runner 有几条硬性限制，流水线是围绕它们设计的�
 
 手动触发：Actions → `OpenWrt Builder` → Run workflow，可指定 `sources` / `branches`。
 
+## 性能调优
+
+固件预置 [`/etc/sysctl.d/99-performance.conf`](files/etc/sysctl.d/99-performance.conf)，
+针对「x86 + dae 透明代理」这个具体场景，而不是通用模板。
+
+**BBR 拥塞控制。** 普通路由器开 BBR 没有意义——转发流量由两端主机的拥塞控制决定。
+但 dae 会在本机终结客户端 TCP、再向代理服务器发起新连接，**这些出站连接用的是路由器自己的
+拥塞控制**。国际链路通常有丢包，cubic 每次丢包都会大幅收缩窗口，BBR 按实测带宽和 RTT 建模，
+在有损长 RTT 路径上吞吐明显更高。配套的 `fq` 只作用于没有显式 qdisc 的接口，
+WAN 上的 SQM/cake 不受影响。
+
+**套接字缓冲区。** 只抬高上限，中间的默认值保持接近原厂——Linux 会在 min 和 max 之间自动
+调节，这样单连接内存占用不会膨胀，而高带宽延迟积的链路能够充分打开。16 MiB 约对应
+200 ms RTT 下 600 Mbit/s。
+
+**连接跟踪。** 代理场景下每条客户端连接消耗两个 conntrack 条目（客户端→路由器、
+路由器→代理服务器），所以上限提到 131072，同时把哈希桶提到约 max/4——只提上限不提桶
+会让每次查表变慢。
+
+**临时端口范围。** 代理路由器的出站连接远多于普通路由器，所以扩大了 ephemeral 端口范围。
+扩大后的范围覆盖了本固件的服务端口，因此显式保留 `2023,50080,50081,50530,50531`；
+否则服务重启时可能出现端口已被临时连接占用而起不来。
+
+> `nf-conntrack` 没有 AutoLoad，要等防火墙（START=19）装规则时才加载，而
+> `/etc/init.d/sysctl` 在 START=11 就跑完并且用的是 `sysctl -e`（静默忽略不存在的键）。
+> 所以 conntrack 那两项由 [`/etc/init.d/perf-tune`](files/etc/init.d/perf-tune)
+> 在 START=99 重新应用一次，否则它们会毫无提示地不生效。
+
+验证：
+
+```sh
+sysctl net.ipv4.tcp_congestion_control   # 应为 bbr
+sysctl net.netfilter.nf_conntrack_max    # 应为 131072
+logread | grep perf-tune
+```
+
+**AdGuardHome 工作目录**改到了 `/srv/adguardhome-{direct,proxy}`。原先在
+`/var/lib/...`，而 OpenWrt 的 `/var` 是指向 tmpfs 的软链接——意味着每次重启两个实例的
+过滤规则全部重新下载，这段时间内 DNS 拦截不生效。放在 `/srv` 既持久化，又不会被
+`sysupgrade -c` 把查询日志卷进备份包。
+
+### 需要你自行确认的一项
+
+流量卸载能显著提升纯转发吞吐，但会让已建立的连接走内核快速路径、绕过常规 netfilter 处理，
+这与透明代理存在张力。若遇到「个别连接莫名走直连」，这是首要嫌疑：
+
+```sh
+uci get firewall.@defaults[0].flow_offloading
+```
+
 ## 配置保留与升级
 
 ### 结论

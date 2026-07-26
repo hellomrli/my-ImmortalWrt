@@ -392,7 +392,43 @@ jobs:
         }
         sh -n "$backup_helper"
         sh -n files/etc/init.d/adh-direct files/etc/init.d/adh-proxy \
+          files/etc/init.d/perf-tune \
           files/etc/uci-defaults/98-fstab-single-boot files/etc/uci-defaults/99-adh-dual
+        echo "Checking performance profile..."
+        perf_conf="files/etc/sysctl.d/99-performance.conf"
+        perf_init="files/etc/init.d/perf-tune"
+        for expected in \
+          "net.ipv4.tcp_congestion_control=bbr" \
+          "net.core.default_qdisc=fq" \
+          "net.netfilter.nf_conntrack_max=" \
+          "net.ipv4.ip_local_reserved_ports="; do
+          grep -Fq "$expected" "$perf_conf" || {
+            echo "::error::${perf_conf} is missing: $expected"
+            exit 1
+          }
+        done
+        # The conntrack keys do not exist when /etc/init.d/sysctl runs, and it
+        # uses `sysctl -e`, so without this late re-apply they are silently
+        # dropped at boot.
+        [ -x "$perf_init" ] || { echo "::error::${perf_init} is not executable."; exit 1; }
+        grep -Fq "/etc/sysctl.d/99-performance.conf" "$perf_init" || {
+          echo "::error::${perf_init} must re-apply the sysctl profile after nf_conntrack loads."
+          exit 1
+        }
+        # AdGuardHome caches its filter lists in the work dir; /var is a symlink
+        # to tmpfs, so keeping it there re-downloads every list on every boot.
+        if grep -nE '^WORK=/(var|tmp)/' files/etc/init.d/adh-direct files/etc/init.d/adh-proxy; then
+          echo "::error::AdGuardHome work directory is on tmpfs; filter lists would be lost on every reboot."
+          exit 1
+        fi
+        for spec in "adh-direct|/srv/adguardhome-direct" "adh-proxy|/srv/adguardhome-proxy"; do
+          svc="${spec%%|*}"
+          want="${spec#*|}"
+          grep -qx "WORK=${want}" "files/etc/init.d/${svc}" || {
+            echo "::error::files/etc/init.d/${svc} does not use the persistent work dir ${want}."
+            exit 1
+          }
+        done
         for spec in \
           "files/etc/AdGuardHome-direct.yaml|127.0.0.1:50080" \
           "files/etc/AdGuardHome-proxy.yaml|127.0.0.1:50081"; do

@@ -4,7 +4,11 @@ START=94
 STOP=10
 BIN=/usr/bin/AdGuardHome-direct
 CONF=/etc/AdGuardHome-direct.yaml
-WORK=/var/lib/adguardhome-direct
+# Persistent, deliberately not under /var (which is a symlink to tmpfs): the
+# work dir holds the downloaded filter lists, so on /var every reboot re-fetched
+# every list and left DNS filtering inactive until they arrived.  Kept out of
+# /etc as well, so query logs stay out of sysupgrade -c backups.
+WORK=/srv/adguardhome-direct
 start_service() {
   [ -x "$BIN" ] || return 1
   mkdir -p "$WORK"

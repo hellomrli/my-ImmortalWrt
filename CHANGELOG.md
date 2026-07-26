@@ -4,6 +4,20 @@
 
 ## [Unreleased]
 
+### 性能
+- 🚀 预置 `/etc/sysctl.d/99-performance.conf`：启用 BBR + fq。`kmod-tcp-bbr` 此前已编入固件却从未激活（仓库里没有任何 sysctl 配置），系统一直在用 cubic。这一项对本固件特别相关——dae 在本机终结客户端 TCP 后会自行向代理服务器建立连接，这些出站连接使用路由器自身的拥塞控制，在有损长 RTT 的国际链路上 BBR 优势明显。
+- 🚀 抬高套接字缓冲区上限（16 MiB）、`netdev_max_backlog` 与 `somaxconn`；只改上限、保留接近原厂的默认值，让 Linux 自动调节，避免单连接内存膨胀。
+- 🚀 关闭 `tcp_slow_start_after_idle`、开启 `tcp_mtu_probing`：代理连接空闲后突发时不再每次重新慢启动；隧道/代理路径常见的 ICMP 黑洞导致的 PMTU 失败也能规避。
+- 🚀 conntrack 上限提到 131072 并同步抬高哈希桶（约 max/4）——代理场景下每条客户端连接消耗两个条目。只提上限不提桶会拖慢每次查表。
+- 🚀 扩大临时端口范围，并显式保留 `2023,50080,50081,50530,50531`——扩大后的范围覆盖了本固件的服务端口，不保留的话服务重启时可能因端口被临时连接占用而启动失败。
+- 🩹 新增 `/etc/init.d/perf-tune`（START=99）重新应用一次 sysctl 配置：`kmod-nf-conntrack` 没有 AutoLoad，要到防火墙 START=19 才加载，而 `/etc/init.d/sysctl` 在 START=11 用 `sysctl -e` 静默跳过不存在的键——否则 conntrack 两项会毫无提示地不生效。
+- 🚀 AdGuardHome 工作目录从 `/var/lib/adguardhome-*` 移到 `/srv/adguardhome-*`。`/var` 是指向 tmpfs 的软链接，原先每次重启都要重新下载全部过滤规则，期间 DNS 拦截不生效。放 `/srv` 同时避免查询日志被 `sysupgrade -c` 卷进备份包。
+
+### 构建产物
+- 📦 去除重复的 rootfs 压缩包：`CONFIG_TARGET_ROOTFS_TARGZ` 会用两个名字产出同一份归档（上次发布的两份 sha256 完全相同），每次构建白传约 81 MiB。删除前用 `cmp` 验证内容确实相同，并同步剔除 `sha256sums` 中的对应行。
+- 📦 关闭无消费者的 DRM/fb/backlight 共 15 个 kmod：`kmod-drm-i915` 早已关闭且未选任何其它 GPU 驱动。本地控制台不受影响——x86 内核内建 `CONFIG_VGA_CONSOLE=y`，而 `FB_EFI` / `SYSFB_SIMPLEFB` / `DRM_SIMPLEDRM` 均未内建，控制台从未依赖这些模块。
+- ⚠️ `CONFIG_KERNEL_DEBUG_INFO` 刻意保留：它看似是配置里最昂贵的一项，但 `DEBUG_INFO_BTF` 依赖它，而 dae/daed 需要内核 BTF；且 BTF 与 `DEBUG_INFO_REDUCED` 互斥，没有折中方案。
+
 ### CI / 构建可靠性
 - 🧱 第三方包改为经个人镜像 `hellomrli/my-openwrt-packages` 获取（清单见 `.github/packages.json`），上游删库/改名/转私有不再中断构建；镜像不可达时自动回退上游并告警。只抽取清单内的子目录，避免镜像中未使用的 `golang` / `adguardhome-dual` 等包与官方 feed 和本固件 overlay 方案冲突。
 - ⚡ 修复 ccache 缓存**从第二次构建起永不更新**的问题：原 key 只由配置文件内容哈希决定，主 key 必然命中，`actions/cache` 因此跳过保存，ccache 长期停留在首次构建的内容。改为 key 追加 `run_id` 轮转 + 前缀 `restore-keys`。

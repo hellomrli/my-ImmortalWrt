@@ -1,0 +1,28 @@
+#!/bin/sh /etc/rc.common
+# Re-apply /etc/sysctl.d/99-performance.conf after connection tracking exists.
+#
+# kmod-nf-conntrack declares no AutoLoad, so nf_conntrack is not loaded until
+# the firewall installs its rules at START=19.  /etc/init.d/sysctl runs at
+# START=11 and uses `sysctl -e`, which silently ignores keys whose /proc entry
+# does not exist yet -- so net.netfilter.* in that file would never take effect
+# at boot, without any error to notice.
+#
+# Everything else in the file is already applied by then; re-applying it is
+# harmless and keeps a single source of truth for the whole profile.
+
+START=99
+
+CONF=/etc/sysctl.d/99-performance.conf
+
+start() {
+	[ -f "$CONF" ] || return 0
+
+	[ -d /proc/sys/net/netfilter ] || modprobe nf_conntrack 2>/dev/null
+	if [ ! -d /proc/sys/net/netfilter ]; then
+		logger -t perf-tune -p daemon.warn \
+			"nf_conntrack unavailable; connection tracking limits not applied"
+	fi
+
+	sysctl -e -p "$CONF" >/dev/null 2>&1
+	logger -t perf-tune "applied $CONF (cc=$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null))"
+}
