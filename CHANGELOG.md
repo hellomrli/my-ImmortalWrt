@@ -12,11 +12,16 @@
 - 🚀 扩大临时端口范围，并显式保留 `2023,50080,50081,50530,50531`——扩大后的范围覆盖了本固件的服务端口，不保留的话服务重启时可能因端口被临时连接占用而启动失败。
 - 🩹 新增 `/etc/init.d/perf-tune`（START=99）重新应用一次 sysctl 配置：`kmod-nf-conntrack` 没有 AutoLoad，要到防火墙 START=19 才加载，而 `/etc/init.d/sysctl` 在 START=11 用 `sysctl -e` 静默跳过不存在的键——否则 conntrack 两项会毫无提示地不生效。
 - 🚀 AdGuardHome 工作目录从 `/var/lib/adguardhome-*` 移到 `/srv/adguardhome-*`。`/var` 是指向 tmpfs 的软链接，原先每次重启都要重新下载全部过滤规则，期间 DNS 拦截不生效。放 `/srv` 同时避免查询日志被 `sysupgrade -c` 卷进备份包。
+- 🚀 新增 `net.ipv4.tcp_fin_timeout=30`（代理短连接 TIME_WAIT 快速回收，配合已加宽的临时端口范围降低端口耗尽压力）、`net.ipv4.tcp_notsent_lowat=16384`（TLS 握手、HTTP 首包等小请求立即发送，减少代理出站延迟）。
+- 🚀 新增 `vm.swappiness=10`：dae 与双 AdGuardHome 都是内存型服务，默认 60 会让匿名页过早换出，增加 DNS 查询和代理连接延迟；无 swap 分区时该项无副作用。
+- 🚀 新增 `97-dnsmasq-cache`：dnsmasq 缓存从编译内建默认（1000 条）提到 10000，热门域名直接命中 `:53`，不再每次走 dnsmasq → dae → 双 ADH 整条链。仅在用户未显式设置 `cachesize` 时写入，升级不覆盖已有配置。
+- 🚀 `AdGuardHome-direct` 缓存从 4 MiB 提到 64 MiB。它是处理国内流量（绝大多数查询）的主后端，小缓存频繁逐出；`cache_optimistic` 已开启，加大缓存减少上游查询次数。
 
 ### 构建产物
 - 📦 去除重复的 rootfs 压缩包：`CONFIG_TARGET_ROOTFS_TARGZ` 会用两个名字产出同一份归档（上次发布的两份 sha256 完全相同），每次构建白传约 81 MiB。删除前用 `cmp` 验证内容确实相同，并同步剔除 `sha256sums` 中的对应行。
 - 📦 关闭无消费者的 DRM/fb/backlight 共 15 个 kmod：`kmod-drm-i915` 早已关闭且未选任何其它 GPU 驱动。本地控制台不受影响——x86 内核内建 `CONFIG_VGA_CONSOLE=y`，而 `FB_EFI` / `SYSFB_SIMPLEFB` / `DRM_SIMPLEDRM` 均未内建，控制台从未依赖这些模块。
 - ⚠️ `CONFIG_KERNEL_DEBUG_INFO` 刻意保留：它看似是配置里最昂贵的一项，但 `DEBUG_INFO_BTF` 依赖它，而 dae/daed 需要内核 BTF；且 BTF 与 `DEBUG_INFO_REDUCED` 互斥，没有折中方案。
+- 📦 fstab 与 apk repositories 从 `diy-part2-daed.sh` 的构建期 heredoc 改为仓库 `files/` 内提交的静态文件（`files/etc/config/fstab`、`files/etc/apk/repositories`），可 diff、可审查，与其余 overlay 覆盖一致；CI 断言同步指向新路径。
 
 ### CI / 构建可靠性
 - 🧱 第三方包改为经个人镜像 `hellomrli/my-openwrt-packages` 获取（清单见 `.github/packages.json`），上游删库/改名/转私有不再中断构建；镜像不可达时自动回退上游并告警。只抽取清单内的子目录，避免镜像中未使用的 `golang` / `adguardhome-dual` 等包与官方 feed 和本固件 overlay 方案冲突。
@@ -31,6 +36,10 @@
 - 📉 README 构建表去掉实时「构建中」状态：该瞬时状态每个构建周期产生 4-5 个提交，仓库历史绝大部分是表格抖动。同时移除失效的 `release:` 触发器（GITHUB_TOKEN 创建的 release 不会触发 workflow）。
 - 🗑️ 删除已死且已漂移的 `diy-part2.sh`（缺少 `openssh-sftp-server` / `adguardhome` 的强制启用）。
 - 🔗 `99-adh-dual` 改为从 `/rom` 恢复 init 脚本，`my-sysupgrade-backup` 改为直接读 `/lib/upgrade/keep.d/my-immortalwrt`，消除同一份内容的三处重复；CI 断言补齐原先遗漏的 `/etc/config/lucky` 与 `/etc/crontabs/root`。
+- 🧱 构建目标收敛为单一事实源 `.github/targets.json`：builder 矩阵、update-checker 矩阵、README 构建表脚本三处统一读取，加/删分支只需改一个文件。
+- 🔐 修复「已构建」标记在 release 上传失败时仍被写入的问题：`Upload to release` 现在有 `id`，标记、README 刷新、旧 release 清理三个步骤都要求 release 上传成功才执行——上传失败会保持「未构建」状态，下次更新检查会重试而不是被标记污染。
+- ⚡ `make download` 的截断文件清理并入重试循环（失败重试 + 截断重取，最多 4 趟），省掉原先成功后再跑一轮全量下载扫描的浪费。
+- 🤖 新增 dependabot：GitHub Actions 每周自动检查更新，统一分组 PR，`ci` 前缀提交信息。
 
 ### Changed
 - 🔄 构建矩阵收敛为两个正式 ImmortalWrt 固件：`immortalwrt/master` 与 `immortalwrt/openwrt-25.12`；产物名称不再使用 `immortalwrt-daed` 后缀。
