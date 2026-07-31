@@ -21,25 +21,51 @@ on:
     - cron: 35 */6 * * *
 
 jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        persist-credentials: false
+
+    - name: Generate check matrix
+      id: matrix
+      run: |
+        python3 - <<'PY'
+        import json
+        import os
+
+        with open(".github/targets.json", encoding="utf-8") as target_file:
+            targets = json.load(target_file)["targets"]
+        matrix = json.dumps(
+            {
+                "include": [
+                    {"source": t["source"], "repo_url": t["repo_url"], "branch": t["branch"]}
+                    for t in targets
+                ]
+            },
+            separators=(",", ":"),
+        )
+        with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+            output.write(f"matrix={matrix}\n")
+        PY
+
   check:
+    needs: prepare
     runs-on: ubuntu-24.04
     permissions:
       contents: write
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - source: immortalwrt
-            repo_url: https://github.com/immortalwrt/immortalwrt
-            branch: master
-          - source: immortalwrt
-            repo_url: https://github.com/immortalwrt/immortalwrt
-            branch: openwrt-25.12
-          # 只监控两个正式 ImmortalWrt 上游分支。
-          # Lucky / Watchdog / kenzok8 dae + daed + luci-app-daede 会在每次固件构建前
-          # 直接从各自上游仓库拉取；Golang / AdGuardHome 使用 ImmortalWrt 官方 feeds。
-          # 这里不把第三方仓库作为自动触发源，避免频繁变动导致无意义构建；
-          # 任意一次固件构建都会重新拉取 kenzok8/openwrt-daede 默认分支的最新版本。
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+      # 只监控 ImmortalWrt 上游分支（来自 .github/targets.json）。
+      # Lucky / Watchdog / kenzok8 dae + daed + luci-app-daede 会在每次固件构建前
+      # 直接从各自上游仓库拉取；Golang / AdGuardHome 使用 ImmortalWrt 官方 feeds。
+      # 这里不把第三方仓库作为自动触发源，避免频繁变动导致无意义构建；
+      # 任意一次固件构建都会重新拉取 kenzok8/openwrt-daede 默认分支的最新版本。
 
     steps:
 

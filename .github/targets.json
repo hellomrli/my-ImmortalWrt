@@ -1,0 +1,28 @@
+{
+  "_comment": [
+    "Single source of truth for which firmware branches this repository builds.",
+    "Consumed by .github/workflows/openwrt-builder.yml, .github/workflows/update-checker.yml",
+    "and .github/scripts/update-readme-build-table.py.  Add or remove a branch here",
+    "and every consumer follows automatically."
+  ],
+  "targets": [
+    {
+      "label": "ImmortalWrt `master`",
+      "source": "immortalwrt",
+      "branch": "master",
+      "repo_url": "https://github.com/immortalwrt/immortalwrt",
+      "config_file": "configs/immortalwrt.config",
+      "diy_p1_sh": "diy-part1.sh",
+      "diy_p2_sh": "diy-part2-daed.sh"
+    },
+    {
+      "label": "ImmortalWrt `openwrt-25.12`",
+      "source": "immortalwrt",
+      "branch": "openwrt-25.12",
+      "repo_url": "https://github.com/immortalwrt/immortalwrt",
+      "config_file": "configs/immortalwrt.config",
+      "diy_p1_sh": "diy-part1.sh",
+      "diy_p2_sh": "diy-part2-daed.sh"
+    }
+  ]
+}

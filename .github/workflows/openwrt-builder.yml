@@ -58,24 +58,8 @@ jobs:
         import os
         import sys
 
-        targets = [
-            {
-                "source": "immortalwrt",
-                "branch": "master",
-                "repo_url": "https://github.com/immortalwrt/immortalwrt",
-                "config_file": "configs/immortalwrt.config",
-                "diy_p1_sh": "diy-part1.sh",
-                "diy_p2_sh": "diy-part2-daed.sh",
-            },
-            {
-                "source": "immortalwrt",
-                "branch": "openwrt-25.12",
-                "repo_url": "https://github.com/immortalwrt/immortalwrt",
-                "config_file": "configs/immortalwrt.config",
-                "diy_p1_sh": "diy-part1.sh",
-                "diy_p2_sh": "diy-part2-daed.sh",
-            },
-        ]
+        with open(".github/targets.json", encoding="utf-8") as target_file:
+            targets = json.load(target_file)["targets"]
 
         def parse_selection(value):
             value = (value or "all").strip()
@@ -333,9 +317,14 @@ jobs:
           echo "::error::Expected safe PPP syncdial probe is missing."
           exit 1
         }
-        custom_fstab="package/base-files/files/etc/config/fstab"
+        custom_fstab="files/etc/config/fstab"
         grep -Eq "^[[:space:]]*option auto_mount '0'$" "$custom_fstab" || {
           echo "::error::Anonymous block auto-mount is enabled; /boot may be mounted twice."
+          exit 1
+        }
+        custom_apk_repos="files/etc/apk/repositories"
+        grep -Fq "distfeeds.list" "$custom_apk_repos" || {
+          echo "::error::Custom apk repositories file is missing or no longer delegates to distfeeds.list."
           exit 1
         }
         fstab_migration="files/etc/uci-defaults/98-fstab-single-boot"
@@ -443,28 +432,38 @@ jobs:
           echo "::error::An init script still overrides the protected AdGuardHome Web address."
           exit 1
         fi
-        for attempt in 1 2 3; do
+        # Download with truncation check folded into the same loop.  A flaky
+        # download can exit 0 while leaving truncated files in dl/; without this
+        # check they would be carried into the compile stage as a serial refetch.
+        download_ok=0
+        for attempt in 1 2 3 4; do
+          # Do not carry a downloaded Go module cache into package builds;
+          # package compilation will recreate it from a clean state.
+          rm -rf dl/go-mod-cache tmp/go-build
+          # Drop truncated artefacts before each pass so they are actually
+          # refetched here instead of pushed into the compile stage.
+          find dl -type f -size -1024c -print -delete
           if make download -j"$(nproc)"; then
+            if find dl -type f -size -1024c -print -quit | grep -q .; then
+              echo "Truncated files remain after successful download (attempt ${attempt}/4); refetching"
+              continue
+            fi
+            download_ok=1
             break
           fi
-          echo "make download failed (attempt ${attempt}/3); retrying in 15s"
+          echo "make download failed (attempt ${attempt}/4); retrying in 15s"
           sleep 15
         done
 
-        # Do not carry a downloaded Go module cache into package builds;
-        # package compilation will recreate it from a clean state.
         rm -rf dl/go-mod-cache tmp/go-build
 
-        # Drop truncated artefacts, then download again so they are actually
-        # refetched here.  Previously they were deleted and never replaced, which
-        # pushed the refetch into the compile stage as a serial download.
-        find dl -type f -size -1024c -print -delete
-        make download -j"$(nproc)"
-        rm -rf dl/go-mod-cache tmp/go-build
-
-        if find dl -type f -size -1024c -print -quit | grep -q .; then
-          echo "::error::Truncated download files remain after refetch:"
-          find dl -type f -size -1024c -print
+        if [ "$download_ok" -ne 1 ]; then
+          if find dl -type f -size -1024c -print -quit | grep -q .; then
+            echo "::error::Truncated download files remain after refetch:"
+            find dl -type f -size -1024c -print
+          else
+            echo "::error::make download did not complete successfully."
+          fi
           exit 1
         fi
 
@@ -703,6 +702,7 @@ jobs:
         echo "status=success" >> $GITHUB_OUTPUT
 
     - name: Upload to release
+      id: release
       uses: softprops/action-gh-release@v2
       if: steps.organize.outputs.status == 'success' && steps.tag.outputs.status == 'success' && !cancelled()
       env:
@@ -715,10 +715,12 @@ jobs:
     # The update checker used to cache this marker itself, right after
     # dispatching -- so a build that failed was still recorded as "done" and was
     # never retried until upstream happened to push again.  Write it here, only
-    # once this exact upstream commit has actually produced a release.
+    # once this exact upstream commit has actually produced a release.  The
+    # release step is the last gate: a failed upload must stay "not built" so
+    # the next update check retries instead of being poisoned by the marker.
     - name: Mark upstream commit as built
       id: mark
-      if: steps.organize.outputs.status == 'success' && steps.tag.outputs.status == 'success' && !cancelled()
+      if: steps.organize.outputs.status == 'success' && steps.tag.outputs.status == 'success' && steps.release.outcome == 'success' && !cancelled()
       run: |
         mkdir -p .commitHash
         echo "${{ matrix.source }}/${{ matrix.branch }}=${SOURCE_SHA}" \
@@ -733,13 +735,13 @@ jobs:
         key: commitHash_${{ matrix.source }}_${{ matrix.branch }}_${{ env.SOURCE_SHA }}
 
     - name: Refresh README build table
-      if: steps.organize.outputs.status == 'success' && steps.tag.outputs.status == 'success' && !cancelled()
+      if: steps.organize.outputs.status == 'success' && steps.tag.outputs.status == 'success' && steps.release.outcome == 'success' && !cancelled()
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: gh workflow run update-readme-build-table.yml --repo="${{ github.repository }}" --ref="${{ github.ref_name }}"
 
     - name: Remove old releases
-      if: steps.tag.outputs.status == 'success' && env.UPLOAD_RELEASE == 'true' && !cancelled()
+      if: steps.tag.outputs.status == 'success' && steps.release.outcome == 'success' && env.UPLOAD_RELEASE == 'true' && !cancelled()
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |

@@ -15,19 +15,18 @@ README = Path("README.md")
 START = "<!-- BUILD_TABLE_START -->"
 END = "<!-- BUILD_TABLE_END -->"
 
+# The firmware target list lives in .github/targets.json; keep the table in
+# step with the branches the workflows actually build.
 TARGETS = [
     {
-        "label": "ImmortalWrt `master`",
-        "source": "immortalwrt",
-        "branch": "master",
-        "tag_prefix": "immortalwrt-master-",
-    },
-    {
-        "label": "ImmortalWrt `openwrt-25.12`",
-        "source": "immortalwrt",
-        "branch": "openwrt-25.12",
-        "tag_prefix": "immortalwrt-openwrt-25.12-",
-    },
+        "label": target["label"],
+        "source": target["source"],
+        "branch": target["branch"],
+        "tag_prefix": f"{target['source']}-{target['branch']}-",
+    }
+    for target in json.loads(
+        (Path(__file__).resolve().parent.parent / "targets.json").read_text(encoding="utf-8")
+    )["targets"]
 ]
 
 
