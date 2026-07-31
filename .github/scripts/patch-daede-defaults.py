@@ -144,6 +144,7 @@ def main() -> int:
     replace_once(
         view,
         """\t'dns {\\n' +
+\t'    # 国内域名走 cndns 解析，其余走 fallbackdns，避免 DNS 污染。\\n' +
 \t'    ipversion_prefer: 4\\n' +
 \t'    response_ttl: 0\\n' +
 \t'    upstream {\\n' +
@@ -188,6 +189,8 @@ def main() -> int:
     replace_once(
         view,
         """\t'routing {\\n' +
+\t'    # 分流规则：从上往下匹配，命中即停，最后由 fallback 兜底。\\n' +
+\t'    # 想让某个网站直连，在 fallback 之前加一行，例如：domain(example.com) -> direct\\n' +
 \t'    pname(NetworkManager) -> direct\\n' +""",
         """\t'routing {\\n' +
 \t'    pname(odhcpd, odhcp6c, netifd, ntpd, uhttpd, dropbear) -> must_direct\\n' +
