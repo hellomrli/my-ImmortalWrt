@@ -47,6 +47,14 @@ rm -rf \
     package/feeds/luci/luci-app-daed \
     package/feeds/luci/luci-app-daede
 
+# ImmortalWrt 官方 packages feed 近期给 freeradius3 引入 kconfig 递归依赖
+# （choice depends on PACKAGE_freeradius3-common，而主包 select 它、又 depends
+# 于该 choice 成员），make defconfig 解析期整体报错。本固件明确不编译
+# freeradius3（# CONFIG_PACKAGE_freeradius3 is not set），直接移除 feed 条目。
+rm -rf \
+    package/feeds/packages/freeradius3 \
+    feeds/packages/net/freeradius3
+
 python3 "$repo_root/.github/scripts/fetch-packages.py" \
     --config "$repo_root/.github/packages.json" \
     --tree "$PWD" \
