@@ -46,6 +46,13 @@ jobs:
       matrix: ${{ steps.matrix.outputs.matrix }}
       targets: ${{ steps.matrix.outputs.targets }}
     steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        # Package Makefiles from cloned third-party repositories run during the
+        # build; do not leave a repository write credential in git config.
+        persist-credentials: false
+
     - name: Generate build matrix
       id: matrix
       shell: bash
