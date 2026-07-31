@@ -1,0 +1,15 @@
+# Custom fstab: mount only /boot explicitly.  Anonymous block auto-mount is
+# disabled so blockd cannot mount /dev/sda1 twice, and the read-only squashfs
+# root is never picked up as an extroot.
+config global
+	option anon_swap '0'
+	option anon_mount '0'
+	option auto_swap '0'
+	option auto_mount '0'
+	option delay_root '5'
+	option check_fs '0'
+
+config mount
+	option target '/boot'
+	option device '/dev/sda1'
+	option enabled '1'

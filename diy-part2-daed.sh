@@ -96,36 +96,14 @@ if [ ! -d feeds/packages/lang/golang ]; then
     exit 1
 fi
 
-# 3. 生成自定义 fstab 配置文件，只保留 /boot 挂载，避免把只读 squashfs 根分区当作 extroot
-mkdir -p package/base-files/files/etc/config
-cat > package/base-files/files/etc/config/fstab << 'FSTAB'
-config global
-	option anon_swap '0'
-	option anon_mount '0'
-	option auto_swap '0'
-	option auto_mount '0'
-	option delay_root '5'
-	option check_fs '0'
+# 3. 单 /boot 挂载的 fstab 与空白 apk repositories 由 files/ 提供：
+#    files/etc/config/fstab（只挂 /boot，禁用匿名 auto-mount，避免把只读 squashfs
+#    根分区当作 extroot）和 files/etc/apk/repositories（保持 APK 默认源由构建系统生成，
+#    不混入目录格式源）。它们随固件打进 rootfs，与其余 files/ 覆盖一致。
 
-config mount
-	option target '/boot'
-	option device '/dev/sda1'
-	option enabled '1'
-FSTAB
-
-
-# 3.1. 升级保留规则由 files/lib/upgrade/keep.d/my-immortalwrt 提供。
+# 4. 升级保留规则由 files/lib/upgrade/keep.d/my-immortalwrt 提供。
 # 不覆盖 /etc/sysupgrade.conf：该文件留给用户添加设备专属路径；keep.d 位于只读 ROM，
 # 不会被旧固件保留下来的 overlay 文件遮蔽，后续规则修复也能随新固件生效。
-
-# 4. 保持 APK 默认源由 ImmortalWrt 构建系统生成，避免混入目录格式源导致 apk update 拉取 APKINDEX.tar.gz
-# 不要预置 /etc/apk/repositories.d/customfeeds.list：该文件由 apk-openssl 包提供，
-# 放进 base-files 会在 package/install 阶段触发文件归属冲突。
-mkdir -p package/base-files/files/etc/apk
-cat > package/base-files/files/etc/apk/repositories << 'APKREPOS'
-# OpenWrt apk feeds are managed in /etc/apk/repositories.d/distfeeds.list
-# Add custom feeds to /etc/apk/repositories.d/customfeeds.list
-APKREPOS
 
 # 5. 移除 video 软件源；当前镜像的 video/packages.adb 容易同步不完整，导致 apk update 失败
 sed -i '/^CONFIG_FEED_video=y/d' .config 2>/dev/null || true

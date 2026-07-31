@@ -1,0 +1,7 @@
+# OpenWrt apk feeds are managed in /etc/apk/repositories.d/distfeeds.list
+# Add custom feeds to /etc/apk/repositories.d/customfeeds.list
+#
+# Deliberately not a directory-format source list: that would make `apk update`
+# pull APKINDEX.tar.gz for a local directory and break the feed.  Also do not
+# ship /etc/apk/repositories.d/customfeeds.list -- that file is owned by the
+# apk-openssl package and conflicts at package/install time.
