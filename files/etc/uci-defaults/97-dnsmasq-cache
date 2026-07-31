@@ -1,0 +1,15 @@
+#!/bin/sh
+# Bump the dnsmasq cache beyond the compiled-in default (1000 entries).  :53 is
+# the single DNS entry point for the whole LAN; a bigger cache lets hot names
+# resolve without walking the dnsmasq -> dae -> dual-AdGuardHome chain on every
+# query.  Guard the write so a keep-config sysupgrade does not clobber a value
+# the user set explicitly.
+
+set -eu
+
+if ! uci -q get 'dhcp.@dnsmasq[0].cachesize' >/dev/null 2>&1; then
+	uci -q set 'dhcp.@dnsmasq[0].cachesize=10000'
+	uci -q commit dhcp
+fi
+
+exit 0
