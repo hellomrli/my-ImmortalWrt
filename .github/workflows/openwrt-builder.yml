@@ -448,10 +448,11 @@ jobs:
           # package compilation will recreate it from a clean state.
           rm -rf dl/go-mod-cache tmp/go-build
           # Drop truncated artefacts before each pass so they are actually
-          # refetched here instead of pushed into the compile stage.
-          find dl -type f -size -1024c -print -delete
+          # refetched here instead of pushed into the compile stage.  dl/ does
+          # not exist on the first pass (make download creates it).
+          [ -d dl ] && find dl -type f -size -1024c -print -delete
           if make download -j"$(nproc)"; then
-            if find dl -type f -size -1024c -print -quit | grep -q .; then
+            if [ -d dl ] && find dl -type f -size -1024c -print -quit | grep -q .; then
               echo "Truncated files remain after successful download (attempt ${attempt}/4); refetching"
               continue
             fi
@@ -465,7 +466,7 @@ jobs:
         rm -rf dl/go-mod-cache tmp/go-build
 
         if [ "$download_ok" -ne 1 ]; then
-          if find dl -type f -size -1024c -print -quit | grep -q .; then
+          if [ -d dl ] && find dl -type f -size -1024c -print -quit | grep -q .; then
             echo "::error::Truncated download files remain after refetch:"
             find dl -type f -size -1024c -print
           else
