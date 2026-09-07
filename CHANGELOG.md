@@ -8,11 +8,11 @@
 - 🚀 预置 `/etc/sysctl.d/99-performance.conf`：启用 BBR + fq。`kmod-tcp-bbr` 此前已编入固件却从未激活（仓库里没有任何 sysctl 配置），系统一直在用 cubic。这一项对本固件特别相关——dae 在本机终结客户端 TCP 后会自行向代理服务器建立连接，这些出站连接使用路由器自身的拥塞控制，在有损长 RTT 的国际链路上 BBR 优势明显。
 - 🚀 抬高套接字缓冲区上限（16 MiB）、`netdev_max_backlog` 与 `somaxconn`；只改上限、保留接近原厂的默认值，让 Linux 自动调节，避免单连接内存膨胀。
 - 🚀 关闭 `tcp_slow_start_after_idle`、开启 `tcp_mtu_probing`：代理连接空闲后突发时不再每次重新慢启动；隧道/代理路径常见的 ICMP 黑洞导致的 PMTU 失败也能规避。
-- 🚀 conntrack 上限提到 131072 并同步抬高哈希桶（约 max/4）——代理场景下每条客户端连接消耗两个条目。只提上限不提桶会拖慢每次查表。
-- 🚀 扩大临时端口范围，并显式保留 `2023,50080,50081,50530,50531`——扩大后的范围覆盖了本固件的服务端口，不保留的话服务重启时可能因端口被临时连接占用而启动失败。
+- 🚀 conntrack 上限提到 262144 并同步抬高哈希桶（约 max/4）——代理场景下每条客户端连接消耗两个条目。只提上限不提桶会拖慢每次查表。
+- 🚀 扩大临时端口范围，并显式保留 `2023,12345,50080,50081,50530,50531`——扩大后的范围覆盖了本固件的服务端口，不保留的话服务重启时可能因端口被临时连接占用而启动失败。
 - 🩹 新增 `/etc/init.d/perf-tune`（START=99）重新应用一次 sysctl 配置：`kmod-nf-conntrack` 没有 AutoLoad，要到防火墙 START=19 才加载，而 `/etc/init.d/sysctl` 在 START=11 用 `sysctl -e` 静默跳过不存在的键——否则 conntrack 两项会毫无提示地不生效。
 - 🚀 AdGuardHome 工作目录从 `/var/lib/adguardhome-*` 移到 `/srv/adguardhome-*`。`/var` 是指向 tmpfs 的软链接，原先每次重启都要重新下载全部过滤规则，期间 DNS 拦截不生效。放 `/srv` 同时避免查询日志被 `sysupgrade -c` 卷进备份包。
-- 🚀 新增 `net.ipv4.tcp_fin_timeout=30`（代理短连接 TIME_WAIT 快速回收，配合已加宽的临时端口范围降低端口耗尽压力）、`net.ipv4.tcp_notsent_lowat=16384`（TLS 握手、HTTP 首包等小请求立即发送，减少代理出站延迟）。
+- 设置 `net.ipv4.tcp_fin_timeout=30`，限制孤立连接的 FIN_WAIT_2 等待时间；`net.ipv4.tcp_notsent_lowat=16384` 对应用未发送数据施加写入背压。它们不缩短 TIME_WAIT，也不绕过 TCP 拥塞窗口。
 - 🚀 新增 `vm.swappiness=10`：dae 与双 AdGuardHome 都是内存型服务，默认 60 会让匿名页过早换出，增加 DNS 查询和代理连接延迟；无 swap 分区时该项无副作用。
 - 🚀 新增 `97-dnsmasq-cache`：dnsmasq 缓存从编译内建默认（1000 条）提到 10000，热门域名直接命中 `:53`，不再每次走 dnsmasq → dae → 双 ADH 整条链。仅在用户未显式设置 `cachesize` 时写入，升级不覆盖已有配置。
 - 🚀 `AdGuardHome-direct` 缓存从 4 MiB 提到 64 MiB。它是处理国内流量（绝大多数查询）的主后端，小缓存频繁逐出；`cache_optimistic` 已开启，加大缓存减少上游查询次数。
@@ -50,6 +50,11 @@
 - 🔄 关闭 ext4 rootfs 与 ext4 文件系统包，Release 仅构建并发布 squashfs 相关镜像和 rootfs.tar.gz。
 
 ### Fixed
+- 补齐 `kmod-sched` 提供的 FQ 模块；性能脚本显式加载 `sch_fq`，sysctl 失败时记录原因并返回失败。
+- 开启 IMAGEOPT/PREINITOPT，使恢复模式的 `192.168.50.1` 与广播地址在 `make defconfig` 后仍然生效。
+- 内核配置附件限定从 x86 目标构建目录导出，校验架构及 BPF/BTF、XDP、FQ、BBR，拒绝误用辅助构建的 MIPS 配置。
+- 构建配置改为经过两个分支解析验证的精简选项，移除过期符号、无效禁用写法和无使用方的 Ruby 包，保留 QEMU Guest Agent 的 GLib 依赖。
+- 双 AdGuardHome 新装默认查询日志保留期由 90 天改为 7 天；保留配置升级继续沿用已有 YAML。
 - 修复 `luci-app-daede` 将 DNS 初始化迁入 `config-defaults.sh` 后两个云编译分支在加载自定义配置时失败的问题；补丁兼容新旧布局，首次初始化和插件重置均使用双 AdGuardHome 上游。
 - 💾 关闭 block-mount 的匿名 `auto_mount`，保留唯一的显式 `/boot` 挂载，并通过 uci-defaults 迁移旧配置，避免 `/dev/sda1` 在 `/boot` 上重复挂载。
 - 🌐 修正 ImmortalWrt PPP 脚本对可选 `syncdial` UCI 配置的无条件读取，消除正常 PPPoE 重连时的 `uci: Entry not found` 与 `sh: out of range`。

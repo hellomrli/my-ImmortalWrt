@@ -37,6 +37,7 @@ DNS 分流**，并保留常用管理、QoS、UPnP、SFTP 和虚拟化组件。�
 | --- | --- |
 | 架构 | `x86_64 generic` |
 | 默认地址 | `192.168.50.1` |
+| 恢复模式地址 | `192.168.50.1` |
 | 默认用户 | `root` |
 | 默认密码 | 空密码，首次登录后自行设置 |
 | 包管理 | `APK` |
@@ -165,6 +166,14 @@ PKG_SOURCE=mirror        # 强制只用镜像，缺包即失败
 
 ## 构建流水线
 
+[`configs/immortalwrt.config`](configs/immortalwrt.config) 保存精简构建选项，由上游
+`scripts/diffconfig.sh` 提取，并补齐两个分支都需要显式保留的设置。每个分支在
+`make defconfig` 后校验恢复模式 IP、BTF、`kmod-sched` 和 QEMU Guest Agent；最终完整
+`.config` 随 Release 发布。Ruby 及其标准库不再预装，`qemu-ga` 所需的 GLib 依赖保留。
+
+内核配置附件只从 `build_dir/target-*/linux-x86_64/linux-*/.config` 导出，并校验
+x86_64、BPF/BTF、XDP、FQ 和 BBR，避免误发布 BPF headers 辅助构建的 MIPS 配置。
+
 GitHub 托管 runner 有几条硬性限制，流水线是围绕它们设计的：
 
 | 限制 | 应对 |
@@ -196,7 +205,8 @@ GitHub 托管 runner 有几条硬性限制，流水线是围绕它们设计的�
 但 dae 会在本机终结客户端 TCP、再向代理服务器发起新连接，**这些出站连接用的是路由器自己的
 拥塞控制**。国际链路通常有丢包，cubic 每次丢包都会大幅收缩窗口，BBR 按实测带宽和 RTT 建模，
 在有损长 RTT 路径上吞吐明显更高。配套的 `fq` 只作用于没有显式 qdisc 的接口，
-WAN 上的 SQM/cake 不受影响。
+WAN 上的 SQM/cake 不受影响。`sch_fq` 由 `kmod-sched` 提供，启动脚本会加载该模块；
+sysctl 应用失败时记录错误，不再无条件报告成功。
 
 **套接字缓冲区。** 按本线路的带宽延迟积（1000 Mbit/s 下行 / 100 Mbit/s 上行）计算，
 而不是取一个「够大」的数。单条连接要跑满管道需要 BDP 字节的缓冲：
@@ -220,8 +230,12 @@ WAN 上的 SQM/cake 不受影响。
 1 Gbit/s 下的突发。
 
 **临时端口范围。** 代理路由器的出站连接远多于普通路由器，所以扩大了 ephemeral 端口范围。
-扩大后的范围覆盖了本固件的服务端口，因此显式保留 `2023,50080,50081,50530,50531`；
+扩大后的范围覆盖了本固件的服务端口，因此显式保留 `2023,12345,50080,50081,50530,50531`；
 否则服务重启时可能出现端口已被临时连接占用而起不来。
+
+`tcp_fin_timeout=30` 限制孤立连接在 `FIN_WAIT_2` 中等待对端关闭的时间，不改变
+`TIME_WAIT` 超时。`tcp_notsent_lowat=16384` 限制应用排队的未发送数据，通过写入背压
+约束缓冲积压，不会绕过 TCP 拥塞窗口。
 
 > `nf-conntrack` 没有 AutoLoad，要等防火墙（START=19）装规则时才加载，而
 > `/etc/init.d/sysctl` 在 START=11 就跑完并且用的是 `sysctl -e`（静默忽略不存在的键）。
@@ -232,7 +246,9 @@ WAN 上的 SQM/cake 不受影响。
 
 ```sh
 sysctl net.ipv4.tcp_congestion_control   # 应为 bbr
-sysctl net.netfilter.nf_conntrack_max    # 应为 131072
+sysctl net.core.default_qdisc           # 应为 fq
+sysctl net.netfilter.nf_conntrack_max    # 应为 262144
+tc qdisc show                          # 查看接口实际队列；SQM 接口可为 cake
 logread | grep perf-tune
 ```
 
@@ -240,6 +256,9 @@ logread | grep perf-tune
 `/var/lib/...`，而 OpenWrt 的 `/var` 是指向 tmpfs 的软链接——意味着每次重启两个实例的
 过滤规则全部重新下载，这段时间内 DNS 拦截不生效。放在 `/srv` 既持久化，又不会被
 `sysupgrade -c` 把查询日志卷进备份包。
+
+两个实例的新装默认查询日志保留期为 **7 天**，避免 90 天的日志长期占用 2 GiB 根分区。
+保留配置升级会沿用已有 YAML；现有设备可在各自的 AdGuardHome 界面调整查询日志保留期。
 
 ### 需要你自行确认的一项
 

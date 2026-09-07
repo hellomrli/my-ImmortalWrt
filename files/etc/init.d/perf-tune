@@ -17,12 +17,16 @@ CONF=/etc/sysctl.d/99-performance.conf
 start() {
 	[ -f "$CONF" ] || return 0
 
-	[ -d /proc/sys/net/netfilter ] || modprobe nf_conntrack 2>/dev/null
-	if [ ! -d /proc/sys/net/netfilter ]; then
-		logger -t perf-tune -p daemon.warn \
-			"nf_conntrack unavailable; connection tracking limits not applied"
-	fi
+	[ -e /proc/sys/net/netfilter/nf_conntrack_max ] || modprobe nf_conntrack 2>/dev/null || true
+	modprobe sch_fq 2>/dev/null || true
 
-	sysctl -e -p "$CONF" >/dev/null 2>&1
-	logger -t perf-tune "applied $CONF (cc=$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null))"
+	# Do not ignore missing keys or report success after a rejected setting.
+	# sysctl continues through the file, so include its output when any fail.
+	local output
+	if output="$(sysctl -p "$CONF" 2>&1)"; then
+		logger -t perf-tune "applied $CONF (cc=$(sysctl -n net.ipv4.tcp_congestion_control), qdisc=$(sysctl -n net.core.default_qdisc))"
+	else
+		logger -t perf-tune -p daemon.err "failed to apply $CONF: $output"
+		return 1
+	fi
 }

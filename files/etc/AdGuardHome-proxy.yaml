@@ -101,7 +101,7 @@ tls:
 querylog:
   dir_path: ""
   ignored: []
-  interval: 90d
+  interval: 7d
   size_memory: 1000
   enabled: true
   ignored_enabled: false

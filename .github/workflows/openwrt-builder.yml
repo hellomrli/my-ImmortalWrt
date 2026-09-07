@@ -254,6 +254,34 @@ jobs:
       run: |
         cd openwrt
         make defconfig
+        echo "Checking the networking and recovery profile after defconfig..."
+        for symbol in \
+          CONFIG_IMAGEOPT \
+          CONFIG_PREINITOPT \
+          CONFIG_KERNEL_DEBUG_INFO_BTF \
+          CONFIG_KERNEL_CGROUP_BPF \
+          CONFIG_KERNEL_XDP_SOCKETS \
+          CONFIG_PACKAGE_kmod-sched \
+          CONFIG_PACKAGE_qemu-ga \
+          CONFIG_PACKAGE_glib2; do
+          grep -qx "${symbol}=y" .config || {
+            echo "::error::Required profile option ${symbol} was lost during defconfig."
+            exit 1
+          }
+        done
+        for expected in \
+          'CONFIG_TARGET_PREINIT_IP="192.168.50.1"' \
+          'CONFIG_TARGET_PREINIT_NETMASK="255.255.255.0"' \
+          'CONFIG_TARGET_PREINIT_BROADCAST="192.168.50.255"'; do
+          grep -Fxq "$expected" .config || {
+            echo "::error::Recovery network setting was not preserved: $expected"
+            exit 1
+          }
+        done
+        if grep -E '^CONFIG_PACKAGE_(ruby|libruby)[^=]*=(y|m)$' .config; then
+          echo "::error::Unused Ruby packages are still selected."
+          exit 1
+        fi
         echo "Checking kenzok8/openwrt-daede package selection..."
         kenzok_dae_makefile="package/dae/dae/Makefile"
         kenzok_daed_makefile="package/dae/daed/Makefile"
@@ -432,6 +460,15 @@ jobs:
           address="${spec#*|}"
           grep -Fq "  address: $address" "$conf" || {
             echo "::error::Unauthenticated default Web UI is not loopback-only in $conf."
+            exit 1
+          }
+          awk '
+            /^querylog:/ { in_querylog=1; next }
+            /^[^[:space:]#]/ { in_querylog=0 }
+            in_querylog && $1 == "interval:" && $2 == "7d" { found=1 }
+            END { exit !found }
+          ' "$conf" || {
+            echo "::error::AdGuardHome query log retention must default to 7d in $conf."
             exit 1
           }
         done
@@ -614,13 +651,17 @@ jobs:
           echo "::error::No firmware package manifest found; cannot verify F2FS overlay bootstrap packages."
           exit 1
         fi
-        echo "Checking required F2FS overlay bootstrap packages in $manifest..."
-        for pkg in kmod-fs-f2fs mkf2fs f2fsck openssh-sftp-server adguardhome; do
+        echo "Checking required runtime packages in $manifest..."
+        for pkg in kmod-fs-f2fs mkf2fs f2fsck openssh-sftp-server adguardhome kmod-sched qemu-ga; do
           if ! grep -Eq "^${pkg}[[:space:]]" "$manifest"; then
-            echo "::error::${pkg} is missing from firmware manifest; squashfs images may lose configuration after reboot."
+            echo "::error::${pkg} is missing from the firmware manifest."
             exit 1
           fi
         done
+        if grep -E '^(ruby|libruby)([-0-9.]|[[:space:]])' "$manifest"; then
+          echo "::error::Unused Ruby packages are still present in the firmware."
+          exit 1
+        fi
         echo "Checking kenzok8/openwrt-daede versions in firmware manifest..."
         kenzok_dae_version="$(sed -n 's/^PKG_VERSION:=//p' ../../../../package/dae/dae/Makefile | head -n 1)"
         kenzok_daed_version="$(sed -n 's/^PKG_VERSION:=//p' ../../../../package/dae/daed/Makefile | head -n 1)"
@@ -647,8 +688,8 @@ jobs:
         # Ship the resolved third-party package sources with the firmware so a
         # released image can be traced back to exact mirror/upstream commits.
         cp -f ../../../../package-provenance.txt "${{ matrix.source }}-${{ matrix.branch }}_packages.txt" 2>/dev/null || true
-        kernel_config="$(find ../../../../build_dir -path '*/linux-*/linux-*/.config' -type f -print -quit 2>/dev/null || true)"
-        [ -n "$kernel_config" ] && cp -f "$kernel_config" "${{ matrix.source }}-${{ matrix.branch }}_kernel.config" || true
+        python3 "$GITHUB_WORKSPACE/.github/scripts/export-kernel-config.py" \
+          ../../../.. "${{ matrix.source }}-${{ matrix.branch }}_kernel.config"
         echo "Published firmware files:"
         find . -maxdepth 1 -type f -printf '%f\n' | sort
         echo "FIRMWARE=$PWD" >> $GITHUB_ENV
