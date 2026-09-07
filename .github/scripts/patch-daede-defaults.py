@@ -28,6 +28,7 @@ def main() -> int:
     root = Path(sys.argv[1])
     daede_config = root / "luci-app-daede/root/etc/config/daede"
     defaults = root / "luci-app-daede/root/etc/uci-defaults/90-luci-app-daede-init"
+    dns_defaults = root / "luci-app-daede/root/usr/share/luci-app-daede/config-defaults.sh"
     generator = root / "luci-app-daede/root/usr/share/luci-app-daede/gen-dae-config.sh"
     view = root / "luci-app-daede/htdocs/luci-static/resources/view/daede/dae.js"
 
@@ -52,12 +53,20 @@ def main() -> int:
 \t# production configuration are maintained by the standalone dae backend.
 \tuci -q set daede.config.active_backend='dae'""",
     )
+    # luci-app-daede 1.14.7-25 moved DNS seeding into a helper shared by
+    # installation and reset. Keep supporting pinned mirrors with the old
+    # inline block, but still reject unknown contents in either layout.
+    if dns_defaults.is_file():
+        dns_indent = "\t"
+    else:
+        dns_defaults = defaults
+        dns_indent = "\t\t"
     replace_once(
-        defaults,
-        """\t\tuci -q set dae.dns.cn_upstream='udp://dns.alidns.com:53'
-\t\tuci -q set dae.dns.fallback_upstream='tcp+udp://dns.google:53'""",
-        """\t\tuci -q set dae.dns.cn_upstream='udp://127.0.0.1:50530'
-\t\tuci -q set dae.dns.fallback_upstream='udp://127.0.0.1:50531'""",
+        dns_defaults,
+        f"{dns_indent}uci -q set dae.dns.cn_upstream='udp://dns.alidns.com:53'\n"
+        f"{dns_indent}uci -q set dae.dns.fallback_upstream='tcp+udp://dns.google:53'",
+        f"{dns_indent}uci -q set dae.dns.cn_upstream='udp://127.0.0.1:50530'\n"
+        f"{dns_indent}uci -q set dae.dns.fallback_upstream='udp://127.0.0.1:50531'",
     )
 
     replace_once(
