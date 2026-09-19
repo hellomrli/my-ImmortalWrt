@@ -25,6 +25,19 @@
 #   tar --strip-components=1 -C src -xzf dl/dae-src-<version>-<id>.tar.gz
 #   cp -a src a && cp -a src b      # apply the edits to b/, then:
 #   diff -ruN a b > 010-dns-response-ttl.patch
+#
+# Verify a rebase before pushing. The tree ships a dae_stub_ebpf build tag
+# precisely so the control package can be type-checked and tested without
+# bpf2go, which needs clang and the generated eBPF objects:
+#   patch -p1 --dry-run --forward -d src/core < 010-dns-response-ttl.patch
+#   cd src/core
+#   go build -tags dae_stub_ebpf ./config/... ./control/...
+#   go test  -tags dae_stub_ebpf -count=1 ./control/ ./cmd/
+# This rebase was checked that way: build clean, control suite green with zero
+# failures (identical to the unpatched tree) and TestDnsController_
+# ResponseTtlOverride proving that 0 keeps the upstream TTL while a positive
+# value pins it.
+#
 # Verified against dae-src-2026.09.19-183975cdc1d2, -336134cbfade and
 # -c34592141905.
 diff -ruN a/cmd/run_shutdown_test.go b/cmd/run_shutdown_test.go
