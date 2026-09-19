@@ -69,6 +69,47 @@ python3 "$repo_root/.github/scripts/pin-daede-source.py" \
     --tree "$PWD" \
     --provenance "$PWD/package-provenance.txt"
 
+# dae 的 response_ttl 必须由二进制实现：dae 的配置解析器拒绝未知键
+# （config/parser.go: "unexpected key: %v"），而 luci-app-daede 的表单、
+# gen-dae-config.sh 与默认配置模板都会写入该键——补丁缺失时带 response_ttl 的
+# 配置会让 dae 直接起不来。
+#
+# 镜像里带的是上游那份照 2026.09.12 源码写的补丁。dae-src 是滚动 release，
+# pin-daede-source.py 一旦采用新资产（2026.09.19 起），上游补丁的 hunk 就全部
+# 失配：上游把 NormalizeAndCacheDnsResp_ 拆进了 control/dns_controller_cache.go，
+# 运行时可调项移到了 control/dns_controller_runtime.go，并且不再把 A/AAAA 应答
+# TTL 归零。所以这里用仓库内维护的重建版覆盖镜像那份，保持 pin 自适应上游轮换。
+dae_patch_dir="package/dae/dae/patches"
+mkdir -p "$dae_patch_dir"
+install -m644 "$repo_root/.github/patches/010-dns-response-ttl.patch" \
+    "$dae_patch_dir/010-dns-response-ttl.patch"
+
+# 用 pin-daede-source.py 刚取进 dl/ 的源码预检补丁：上游再次重组源码时，这里在
+# 两分钟内失败并打印失配的 hunk，而不是拖到两小时后的编译阶段才发现
+# （2026.09.19 那次失败即是如此）。取不到 tar 包时只告警，交给后面的下载步骤判定。
+dae_src_archives=(dl/dae-src-*.tar.gz)
+dae_src_archive="${dae_src_archives[0]}"
+if [ -f "$dae_src_archive" ]; then
+    dae_patch_check="$(mktemp -d)"
+    tar --strip-components=1 -C "$dae_patch_check" -xzf "$dae_src_archive"
+    if patch -p1 --dry-run --forward -s -d "$dae_patch_check/core" \
+            < "$dae_patch_dir/010-dns-response-ttl.patch"; then
+        echo "response_ttl patch applies cleanly to $dae_src_archive"
+    else
+        echo "ERROR: $dae_patch_dir/010-dns-response-ttl.patch no longer applies to" >&2
+        echo "       $dae_src_archive; rebase .github/patches/010-dns-response-ttl.patch" >&2
+        echo "       (see the recipe in its header) before rebuilding." >&2
+        patch -p1 --dry-run --forward -d "$dae_patch_check/core" \
+            < "$dae_patch_dir/010-dns-response-ttl.patch" 2>&1 |
+            grep -E 'patching file|FAILED|Hunk' >&2 || true
+        rm -rf "$dae_patch_check"
+        exit 1
+    fi
+    rm -rf "$dae_patch_check"
+else
+    echo "WARNING: no dl/dae-src-*.tar.gz yet; cannot pre-verify the response_ttl patch" >&2
+fi
+
 python3 "$repo_root/.github/scripts/patch-daede-defaults.py" package/dae
 
 # 构建前立即验证三包来源和版本元数据；任一文件缺失都拒绝继续，避免回退。

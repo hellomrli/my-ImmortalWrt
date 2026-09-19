@@ -1,0 +1,256 @@
+# Rebased response_ttl patch for the dae package of kenzok8/openwrt-daede.
+#
+# The mirror ships upstream's own 010-dns-response-ttl.patch, which was written
+# against the 2026.09.12 source snapshot. The dae-src rolling release keeps only
+# the newest three tarballs, so pin-daede-source.py must adopt a newer asset as
+# soon as upstream rotates one out -- and upstream's patch then no longer
+# applies. On 2026.09.19 every hunk touching control/dns_control.go,
+# config/config.go and cmd/run_shutdown_test.go was rejected, because upstream
+# split NormalizeAndCacheDnsResp_ out into control/dns_controller_cache.go,
+# moved the runtime tunables into control/dns_controller_runtime.go, and stopped
+# rewriting A/AAAA answers to TTL 0 altogether.
+#
+# This rebase keeps the option's documented contract: response_ttl > 0 pins the
+# TTL dae advertises to downstream clients for address answers, while 0 keeps
+# dae's default, i.e. forwards the upstream TTL. The override runs after the
+# cache entry lifetime has been derived from the real record TTLs, so the packed
+# entry replays with the remaining part of the override and the TTL a client
+# sees no longer depends on whether the entry happened to be cached.
+#
+# The option has to live in the binary: config/parser.go rejects unknown keys
+# ("unexpected key: %v"), so a config carrying response_ttl would leave dae
+# unable to start if the patch were dropped instead.
+#
+# Regenerate against a new rotation with:
+#   tar --strip-components=1 -C src -xzf dl/dae-src-<version>-<id>.tar.gz
+#   cp -a src a && cp -a src b      # apply the edits to b/, then:
+#   diff -ruN a b > 010-dns-response-ttl.patch
+# Verified against dae-src-2026.09.19-183975cdc1d2, -336134cbfade and
+# -c34592141905.
+diff -ruN a/cmd/run_shutdown_test.go b/cmd/run_shutdown_test.go
+--- a/cmd/run_shutdown_test.go	2026-09-20 00:00:55.000000000 +0800
++++ b/cmd/run_shutdown_test.go	2026-09-20 02:26:00.925877034 +0800
+@@ -856,6 +856,7 @@
+ 		"OptimisticCache":         {},
+ 		"OptimisticCacheTtl":      {},
+ 		"OptimisticStaleReplyTtl": {},
++		"ResponseTtl":             {},
+ 		"MaxCacheSize":            {},
+ 	}
+ 
+diff -ruN a/config/config.go b/config/config.go
+--- a/config/config.go	2026-09-20 00:00:55.000000000 +0800
++++ b/config/config.go	2026-09-20 02:26:00.923239727 +0800
+@@ -146,6 +146,9 @@
+ 	// 8767) response is served. 0 keeps the previously packed TTL.
+ 	OptimisticStaleReplyTtl int `mapstructure:"optimistic_stale_reply_ttl" default:"30"`
+ 	MaxCacheSize            int `mapstructure:"max_cache_size" default:"65536"`
++	// ResponseTtl overrides the TTL advertised to downstream DNS clients for
++	// address answers. 0 keeps dae's default, i.e. forwards the upstream TTL.
++	ResponseTtl int `mapstructure:"response_ttl" default:"0"`
+ }
+ 
+ type Routing struct {
+diff -ruN a/config/desc.go b/config/desc.go
+--- a/config/desc.go	2026-09-20 00:00:55.000000000 +0800
++++ b/config/desc.go	2026-09-20 02:26:00.923318498 +0800
+@@ -66,6 +66,7 @@
+ var DnsDesc = Desc{
+ 	"ipversion_prefer": "For example, if ipversion_prefer is 4 and the domain name has both type A and type AAAA records, the dae will only respond to type A queries and response empty answer to type AAAA queries.",
+ 	"fixed_domain_ttl": "Give a fixed ttl for domains. Zero means that dae will request to upstream every time and not cache DNS results for these domains.",
++	"response_ttl":     "Override the TTL returned to downstream DNS clients for address answers. Zero keeps dae's default behavior.",
+ 	"upstream":         "Value can be scheme://host:port, where the scheme can be tcp/udp/tcp+udp.\nIf host is a domain and has both IPv4 and IPv6 record, dae will automatically choose IPv4 or IPv6 to use according to group policy (such as min latency policy).\nPlease make sure DNS traffic will go through and be forwarded by dae, which is REQUIRED for domain routing.\nIf dial_mode is \"ip\", the upstream DNS answer SHOULD NOT be polluted, so domestic public DNS is not recommended.",
+ 	"request": `DNS request routing for ordinary client traffic uses qname and qtype.
+ Built-in outbounds for ordinary DNS requests: asis, reject.
+diff -ruN a/control/control_plane.go b/control/control_plane.go
+--- a/control/control_plane.go	2026-09-20 00:00:55.000000000 +0800
++++ b/control/control_plane.go	2026-09-20 02:26:00.925500368 +0800
+@@ -916,6 +916,7 @@
+ 	plane.dnsOptimisticCache = dnsConfig.OptimisticCache
+ 	plane.dnsOptimisticCacheTtl = dnsConfig.OptimisticCacheTtl
+ 	plane.dnsOptimisticStaleReplyTtl = dnsConfig.OptimisticStaleReplyTtl
++	plane.dnsResponseTtl = dnsConfig.ResponseTtl
+ 	plane.dnsMaxCacheSize = dnsConfig.MaxCacheSize
+ 	plane.dnsIpVersionPrefer = dnsConfig.IpVersionPrefer
+ 	plane.dnsController, err = NewDnsController(dnsUpstream, plane.dnsControllerOption())
+@@ -1291,6 +1292,7 @@
+ 		OptimisticCache:         c.dnsOptimisticCache,
+ 		OptimisticCacheTtl:      c.dnsOptimisticCacheTtl,
+ 		OptimisticStaleReplyTtl: c.dnsOptimisticStaleReplyTtl,
++		ResponseTtl:             c.dnsResponseTtl,
+ 		MaxCacheSize:            c.dnsMaxCacheSize,
+ 		IpVersionPrefer:         c.dnsIpVersionPrefer,
+ 	}
+diff -ruN a/control/dns_control.go b/control/dns_control.go
+--- a/control/dns_control.go	2026-09-20 00:00:55.000000000 +0800
++++ b/control/dns_control.go	2026-09-20 02:26:00.923440907 +0800
+@@ -92,6 +92,9 @@
+ 	// answers (RFC 8767); 0 keeps the previously packed TTL.
+ 	OptimisticStaleReplyTtl int
+ 	MaxCacheSize            int // maximum number of cache entries (0 = unlimited)
++	// ResponseTtl overrides the TTL advertised to downstream DNS clients for
++	// address answers; 0 keeps the upstream TTL.
++	ResponseTtl int
+ }
+ 
+ type dnsControllerStore struct {
+diff -ruN a/control/dns_controller_cache.go b/control/dns_controller_cache.go
+--- a/control/dns_controller_cache.go	2026-09-20 00:00:55.000000000 +0800
++++ b/control/dns_controller_cache.go	2026-09-20 02:26:00.924027905 +0800
+@@ -1224,6 +1224,19 @@
+ 	// Freshness of dae-managed address answers is tracked by the entry deadline
+ 	// and the stale window, not by suppressing downstream caching.
+ 
++	// response_ttl pins the TTL advertised to downstream clients for address
++	// answers. Overriding here, after the entry lifetime was derived from the
++	// real record TTLs, keeps dae's own freshness bookkeeping intact: the
++	// packed entry carries the override and a cache hit replays its remaining
++	// part, so the TTL a client sees no longer depends on cache state.
++	// 0 keeps upstream's behaviour of forwarding the upstream TTL.
++	if responseTtl := c.currentResponseTtl(); responseTtl > 0 &&
++		(q.Qtype == dnsmessage.TypeA || q.Qtype == dnsmessage.TypeAAAA) {
++		for i := range msg.Answer {
++			msg.Answer[i].Header().Ttl = uint32(responseTtl)
++		}
++	}
++
+ 	// Update DnsCache.
+ 	return c.updateDnsCache(msg, responseCacheKey, ttl, &q)
+ }
+diff -ruN a/control/dns_controller_option_test.go b/control/dns_controller_option_test.go
+--- a/control/dns_controller_option_test.go	2026-09-20 00:00:55.000000000 +0800
++++ b/control/dns_controller_option_test.go	2026-09-20 02:26:00.925990956 +0800
+@@ -19,6 +19,7 @@
+ 			dnsFixedDomainTtl:     fixedTtl,
+ 			dnsOptimisticCache:    true,
+ 			dnsOptimisticCacheTtl: 600,
++			dnsResponseTtl:        60,
+ 			dnsMaxCacheSize:       65536,
+ 			dnsIpVersionPrefer:    4,
+ 		},
+@@ -37,6 +38,7 @@
+ 	}{
+ 		{field: "OptimisticCache", got: option.OptimisticCache, want: true},
+ 		{field: "OptimisticCacheTtl", got: option.OptimisticCacheTtl, want: 600},
++		{field: "ResponseTtl", got: option.ResponseTtl, want: 60},
+ 		{field: "MaxCacheSize", got: option.MaxCacheSize, want: 65536},
+ 		{field: "IpVersionPrefer", got: option.IpVersionPrefer, want: 4},
+ 	} {
+diff -ruN a/control/dns_controller_runtime.go b/control/dns_controller_runtime.go
+--- a/control/dns_controller_runtime.go	2026-09-20 00:00:55.000000000 +0800
++++ b/control/dns_controller_runtime.go	2026-09-20 02:26:00.923705970 +0800
+@@ -30,6 +30,7 @@
+ 	optimisticCacheEnabled  bool
+ 	optimisticCacheTtl      int
+ 	optimisticStaleReplyTtl int
++	responseTtl             int
+ 	maxCacheSize            int
+ }
+ 
+@@ -41,6 +42,9 @@
+ 	if err != nil {
+ 		return 0, false, 0, 0, 0, err
+ 	}
++	if option.ResponseTtl < 0 {
++		return 0, false, 0, 0, 0, fmt.Errorf("response_ttl must be greater than or equal to 0")
++	}
+ 	optimisticCacheTtl = option.OptimisticCacheTtl
+ 	optimisticStaleReplyTtl = option.OptimisticStaleReplyTtl
+ 	maxCacheSize = option.MaxCacheSize
+@@ -66,6 +70,16 @@
+ 	return rt.optimisticCacheEnabled, rt.optimisticCacheTtl, rt.optimisticStaleReplyTtl, rt.maxCacheSize
+ }
+ 
++// currentResponseTtl returns the downstream TTL override, or 0 when the
++// running generation keeps upstream's TTLs.
++func (c *DnsController) currentResponseTtl() int {
++	rt := c.runtime()
++	if rt == nil {
++		return 0
++	}
++	return rt.responseTtl
++}
++
+ // ReuseForReload updates the current facade to the replacement generation's
+ // runtime and returns a fresh facade that shares the same long-lived store.
+ // The shared store carries DNS cache, forwarders, janitors, async BPF workers,
+@@ -152,6 +166,7 @@
+ 		optimisticCacheEnabled:  optimisticCacheEnabled,
+ 		optimisticCacheTtl:      optimisticCacheTtl,
+ 		optimisticStaleReplyTtl: optimisticStaleReplyTtl,
++		responseTtl:             option.ResponseTtl,
+ 		maxCacheSize:            maxCacheSize,
+ 	}
+ 	c.runtimeMu.Lock()
+diff -ruN a/control/dns_response_ttl_test.go b/control/dns_response_ttl_test.go
+--- a/control/dns_response_ttl_test.go	1970-01-01 08:00:00.000000000 +0800
++++ b/control/dns_response_ttl_test.go	2026-09-20 02:29:00.852139940 +0800
+@@ -0,0 +1,57 @@
++/*
++ * SPDX-License-Identifier: AGPL-3.0-only
++ * Copyright (c) 2022-2026, daeuniverse Organization <dae@v2raya.org>
++ */
++
++package control
++
++import (
++	"net"
++	"testing"
++
++	dnsmessage "github.com/miekg/dns"
++	"github.com/stretchr/testify/require"
++)
++
++// TestDnsController_ResponseTtlOverride pins the downstream contract of
++// response_ttl: a positive value replaces the TTL of the address answers dae
++// returns to clients, while 0 leaves the upstream TTL untouched.
++func TestDnsController_ResponseTtlOverride(t *testing.T) {
++	for _, tt := range []struct {
++		name        string
++		responseTtl int
++		wantTtl     uint32
++	}{
++		{name: "zero_keeps_upstream_ttl", responseTtl: 0, wantTtl: 300},
++		{name: "positive_pins_downstream_ttl", responseTtl: 60, wantTtl: 60},
++	} {
++		t.Run(tt.name, func(t *testing.T) {
++			ctrl := setTestDnsControllerRuntime(newSemanticsController(t), func(rt *dnsControllerRuntimeState) {
++				rt.responseTtl = tt.responseTtl
++			})
++
++			msg := new(dnsmessage.Msg)
++			msg.SetReply(&dnsmessage.Msg{
++				Question: []dnsmessage.Question{{
++					Name:   "example.com.",
++					Qtype:  dnsmessage.TypeA,
++					Qclass: dnsmessage.ClassINET,
++				}},
++			})
++			msg.Answer = []dnsmessage.RR{
++				&dnsmessage.A{
++					Hdr: dnsmessage.RR_Header{
++						Name:   "example.com.",
++						Rrtype: dnsmessage.TypeA,
++						Class:  dnsmessage.ClassINET,
++						Ttl:    300,
++					},
++					A: net.IPv4(93, 184, 216, 34),
++				},
++			}
++
++			require.NoError(t, ctrl.NormalizeAndCacheDnsResp_(msg, "example.com.:1"))
++			require.Equal(t, tt.wantTtl, msg.Answer[0].Header().Ttl)
++		})
++	}
++}
+diff -ruN a/control/dns_runtime.go b/control/dns_runtime.go
+--- a/control/dns_runtime.go	2026-09-20 00:00:55.000000000 +0800
++++ b/control/dns_runtime.go	2026-09-20 02:26:00.924141339 +0800
+@@ -28,6 +28,7 @@
+ 	dnsOptimisticCache         bool
+ 	dnsOptimisticCacheTtl      int
+ 	dnsOptimisticStaleReplyTtl int
++	dnsResponseTtl             int
+ 	dnsMaxCacheSize            int
+ 	dnsIpVersionPrefer         int
+ 
