@@ -60,6 +60,15 @@ python3 "$repo_root/.github/scripts/fetch-packages.py" \
     --tree "$PWD" \
     --provenance "$PWD/package-provenance.txt"
 
+# dae/daed 的源码包发布在滚动 release（dae-src / daed-src）上，上游只保留最新 3 个
+# 资产：镜像里固定的 PKG_SOURCE 一旦被轮换删除，构建就会在下载阶段 404（2026-09-17
+# 那次失败即为此）。这里在下载前把 pin 拉回可用资产，并把源码取进 dl/ 校验
+# sha256 与目录结构，把上游的意外变成两分钟内的失败。
+# GitHub API 不可达时保留镜像原 pin，交给后面的 make download 判定。
+python3 "$repo_root/.github/scripts/pin-daede-source.py" \
+    --tree "$PWD" \
+    --provenance "$PWD/package-provenance.txt"
+
 python3 "$repo_root/.github/scripts/patch-daede-defaults.py" package/dae
 
 # 构建前立即验证三包来源和版本元数据；任一文件缺失都拒绝继续，避免回退。

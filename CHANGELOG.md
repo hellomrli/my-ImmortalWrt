@@ -40,6 +40,8 @@
 - 🔐 修复「已构建」标记在 release 上传失败时仍被写入的问题：`Upload to release` 现在有 `id`，标记、README 刷新、旧 release 清理三个步骤都要求 release 上传成功才执行——上传失败会保持「未构建」状态，下次更新检查会重试而不是被标记污染。
 - ⚡ `make download` 的截断文件清理并入重试循环（失败重试 + 截断重取，最多 4 趟），省掉原先成功后再跑一轮全量下载扫描的浪费。
 - 🤖 新增 dependabot：GitHub Actions 每周自动检查更新，统一分组 PR，`ci` 前缀提交信息。
+- 🧱 `dae` / `daed` 源码 pin 改为自适应上游滚动 release：上游把组装好的源码树发在 `dae-src` / `daed-src` 上且只保留最新 3 个 tar 包，镜像里固定的 `PKG_SOURCE` 因此会在上游每次重组源码后被轮换删除——2026-09-17 起连续三天的失败全部是这一个原因（pin 指向已被删除的 `dae-src-2026.09.12-187058462a1f.tar.gz`）。构建前由 `.github/scripts/pin-daede-source.py` 沿用仍存在的 pin、pin 消失时改用最新资产并回写 `PKG_VERSION` / `PKG_RELEASE` / `PKG_SOURCE` / `PKG_HASH`，再取回 `dl/` 校验 sha256、文件名内嵌内容 id 与目录结构，实际 tar 包记入 provenance。
+- ⏱️ 修复 `make download` 的「假成功」：`include/toplevel.mk` 把 `tools/toolchain/package/target` 四个下载目录放在同一个 shell 循环里执行，整体退出码取自最后一个 `target/download`，于是 `package/` 里的 404 被吞掉、下载步骤判绿，失败一直拖到两小时后的编译阶段才暴露（本次故障就是这样浪费了 1.5-2 小时）。现在逐个目录重跑并检查退出码，上游源失效会在下载步骤内失败并在 4 次重试后终止。
 
 ### Changed
 - 🔄 构建矩阵收敛为两个正式 ImmortalWrt 固件：`immortalwrt/master` 与 `immortalwrt/openwrt-25.12`；产物名称不再使用 `immortalwrt-daed` 后缀。

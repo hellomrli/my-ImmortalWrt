@@ -25,7 +25,8 @@
         "dae/Makefile",
         "daed/Makefile",
         "luci-app-daede/Makefile"
-      ]
+      ],
+      "note": "dae/daed 的源码 tar 包由 .github/scripts/pin-daede-source.py 在构建时对齐上游滚动 release（dae-src / daed-src），因为上游只保留最新 3 个资产。"
     },
     {
       "name": "luci-app-lucky",

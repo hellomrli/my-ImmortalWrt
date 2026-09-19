@@ -242,6 +242,11 @@ jobs:
       run: cd openwrt && ./scripts/feeds install -a
 
     - name: Load custom configuration
+      env:
+        # Read-only use: resolving the rolling dae-src/daed-src release assets
+        # (see .github/scripts/pin-daede-source.py) needs the release metadata,
+        # and the unauthenticated API limit is shared with other runners.
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         [ -e files ] && mv files openwrt/files
         [ -e ${{ matrix.config_file }} ] && mv ${{ matrix.config_file }} openwrt/.config
@@ -488,7 +493,19 @@ jobs:
           # refetched here instead of pushed into the compile stage.  dl/ does
           # not exist on the first pass (make download creates it).
           [ -d dl ] && find dl -type f -size -1024c -print -delete
-          if make download -j"$(nproc)"; then
+          # `make download` covers the flock/zstd prerequisites but cannot report
+          # what happened: include/toplevel.mk runs the download dirs in one shell
+          # loop (`@+$(foreach dir,$(DOWNLOAD_DIRS),$(SUBMAKE) $(dir);)`), so the
+          # exit status is the one of target/download and a 404 in package/ is
+          # swallowed.  That is how a dead dae source stayed invisible for the
+          # whole toolchain+target phase and only exploded two hours later in the
+          # compile stage.  Repeat the dirs one by one to get a real status.
+          make download -j"$(nproc)" || true
+          download_failed=""
+          for dir in tools toolchain package target; do
+            make -j"$(nproc)" "$dir/download" || download_failed="$dir"
+          done
+          if [ -z "$download_failed" ]; then
             if [ -d dl ] && find dl -type f -size -1024c -print -quit | grep -q .; then
               echo "Truncated files remain after successful download (attempt ${attempt}/4); refetching"
               continue
@@ -496,7 +513,7 @@ jobs:
             download_ok=1
             break
           fi
-          echo "make download failed (attempt ${attempt}/4); retrying in 15s"
+          echo "make $download_failed/download failed (attempt ${attempt}/4); retrying in 15s"
           sleep 15
         done
 

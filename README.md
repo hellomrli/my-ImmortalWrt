@@ -155,6 +155,14 @@ YAML 的 `users`。
 - 落地后校验每个包的必需 `Makefile`，并把实际来源和 commit 写入 `package-provenance.txt`，
   随 Release 发布为 `*_packages.txt`。
 
+`dae` / `daed` 的**源码包**不在镜像仓库里：上游把它们发布在滚动 release `dae-src` / `daed-src` 上，
+且只保留最新 3 个资产，所以镜像里的 `PKG_SOURCE` 会在每次上游重组源码后被轮换删除，构建随即在下载
+阶段 404（2026-09-17 的失败即为此）。构建前由
+[`.github/scripts/pin-daede-source.py`](.github/scripts/pin-daede-source.py) 兜底：原 pin 还在就原样沿用，
+被删掉则改用该 release 最新资产并回写 `PKG_VERSION` / `PKG_RELEASE` / `PKG_SOURCE` / `PKG_HASH`，
+随后把 tar 包取进 `dl/`，校验 sha256、文件名内嵌的 12 位内容 id 和 Makefile 需要的目录结构
+（`core/` + `outbound/` + `quic-go/`，daed 为 `wing/`）。实际使用的 tar 包记入 `package-provenance.txt`。
+
 上游改动打断构建时，把 `.github/packages.json` 的 `mirror.ref` 从 `main` 改成某个已知可用的
 commit SHA，即可一次性冻结全部第三方包。也可用环境变量临时覆盖：
 
