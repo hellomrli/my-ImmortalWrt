@@ -84,31 +84,46 @@ mkdir -p "$dae_patch_dir"
 install -m644 "$repo_root/.github/patches/010-dns-response-ttl.patch" \
     "$dae_patch_dir/010-dns-response-ttl.patch"
 
-# 用 pin-daede-source.py 刚取进 dl/ 的源码预检补丁：上游再次重组源码时，这里在
-# 两分钟内失败并打印失配的 hunk，而不是拖到两小时后的编译阶段才发现
-# （2026.09.19 那次失败即是如此）。取不到 tar 包时只告警，交给后面的下载步骤判定。
-dae_src_archives=(dl/dae-src-*.tar.gz)
-dae_src_archive="${dae_src_archives[0]}"
-if [ -f "$dae_src_archive" ]; then
-    dae_patch_check="$(mktemp -d)"
-    tar --strip-components=1 -C "$dae_patch_check" -xzf "$dae_src_archive"
-    if patch -p1 --dry-run --forward -s -d "$dae_patch_check/core" \
-            < "$dae_patch_dir/010-dns-response-ttl.patch"; then
-        echo "response_ttl patch applies cleanly to $dae_src_archive"
-    else
-        echo "ERROR: $dae_patch_dir/010-dns-response-ttl.patch no longer applies to" >&2
-        echo "       $dae_src_archive; rebase .github/patches/010-dns-response-ttl.patch" >&2
-        echo "       (see the recipe in its header) before rebuilding." >&2
-        patch -p1 --dry-run --forward -d "$dae_patch_check/core" \
-            < "$dae_patch_dir/010-dns-response-ttl.patch" 2>&1 |
-            grep -E 'patching file|FAILED|Hunk' >&2 || true
-        rm -rf "$dae_patch_check"
-        exit 1
+# 预检 package/dae 下各包的 patches/ 能否照 OpenWrt 的方式干净应用。
+# OpenWrt 通过 scripts/patch-kernel.sh 逐个应用：`for i in ${patchdir}/*` 是 shell
+# 通配符展开，即字典序，任一个失败立即 exit 1。这里对 pin-daede-source.py 刚取进
+# dl/ 的源码做同样的应用，把「上游轮换资产 → 补丁失配」从两小时后的编译阶段提前到
+# 十分钟内，并打印失配的 hunk（2026.09.19 的失败正是这样浪费了一整轮）。
+# 取不到 tar 包时只告警：下载步骤会再判定一次。
+precheck_patches() {
+    local label="$1" patch_dir="$2" subdir="$3" archive="$4"
+    [ -d "$patch_dir" ] || return 0
+    # patch -d 会先切到目标目录，-i 的相对路径就失效了：先转成绝对路径。
+    case "$patch_dir" in /*) ;; *) patch_dir="$PWD/$patch_dir" ;; esac
+    case "$archive" in /*) ;; *) archive="$PWD/$archive" ;; esac
+    if [ ! -f "$archive" ]; then
+        echo "WARNING: $archive is missing; cannot pre-verify the $label patches" >&2
+        return 0
     fi
-    rm -rf "$dae_patch_check"
-else
-    echo "WARNING: no dl/dae-src-*.tar.gz yet; cannot pre-verify the response_ttl patch" >&2
-fi
+    local tmp output patch_file
+    tmp="$(mktemp -d)"
+    tar --strip-components=1 -C "$tmp" -xzf "$archive"
+    for patch_file in "$patch_dir"/*.patch; do
+        [ -e "$patch_file" ] || continue
+        if ! output="$(patch -f -p1 -d "$tmp/$subdir" -i "$patch_file" 2>&1)"; then
+            echo "ERROR: ${patch_file##*/} no longer applies to $archive ($label sources)." >&2
+            echo "       Patches are applied in lexicographic order, so rebase this one" >&2
+            echo "       (and re-check the ones after it) before rebuilding:" >&2
+            echo "         tar --strip-components=1 -C /tmp/pf -xzf $archive" >&2
+            echo "         for p in $patch_dir/*.patch; do patch -f -p1 -d /tmp/pf/$subdir -i \$p || break; done" >&2
+            echo "$output" | grep -E 'patching file|Hunk|FAILED|Reversed|can.t find' >&2 || true
+            rm -rf "$tmp"
+            exit 1
+        fi
+    done
+    echo "$label patches apply cleanly to $archive"
+    rm -rf "$tmp"
+}
+
+dae_archives=(dl/dae-src-*.tar.gz)
+daed_archives=(dl/daed-src-*.tar.gz)
+precheck_patches "dae" "$dae_patch_dir" "core" "${dae_archives[0]}"
+precheck_patches "daed" "package/dae/daed/patches" "wing" "${daed_archives[0]}"
 
 python3 "$repo_root/.github/scripts/patch-daede-defaults.py" package/dae
 
