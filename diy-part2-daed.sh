@@ -69,6 +69,16 @@ python3 "$repo_root/.github/scripts/pin-daede-source.py" \
     --tree "$PWD" \
     --provenance "$PWD/package-provenance.txt"
 
+# daed-src 内嵌的 wing/dae-core 取的是 dae 的默认分支，而不是 dae-wing 给该子模块
+# 锁定的提交。dae main 一旦改动 API，wing/ 就编译不过：2026-09-19 dae main 删掉了
+# netutils.FallbackDns 与 dialer.NewFromLink（wing/ 仍在用），daed 包报出 6 个
+# undefined；它被前面的 dae 补丁失败挡在后面，直到两小时后才暴露。
+# 这里先探测 tarball 自带的 dae-core，不合规才解析 dae-wing 真正锁定的提交，并把
+# daed 的 Build/Prepare 换成该提交的源码树（归档由脚本取进 dl/ 并校验）。
+python3 "$repo_root/.github/scripts/pin-daed-core.py" \
+    --tree "$PWD" \
+    --provenance "$PWD/package-provenance.txt"
+
 # dae 的 response_ttl 必须由二进制实现：dae 的配置解析器拒绝未知键
 # （config/parser.go: "unexpected key: %v"），而 luci-app-daede 的表单、
 # gen-dae-config.sh 与默认配置模板都会写入该键——补丁缺失时带 response_ttl 的
