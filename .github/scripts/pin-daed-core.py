@@ -136,6 +136,19 @@ def resolve_candidates(token: str | None) -> list[tuple[str, str]]:
     return unique
 
 
+def submodule_paths(root: Path) -> list[str]:
+    """Paths declared in the tree's .gitmodules."""
+    modules = root / ".gitmodules"
+    if not modules.is_file():
+        return []
+    paths = []
+    for line in modules.read_text(encoding="utf-8", errors="replace").splitlines():
+        match = re.match(r"\s*path\s*=\s*(\S+)\s*$", line)
+        if match:
+            paths.append(match.group(1))
+    return paths
+
+
 def probe_tree(root: Path) -> list[str]:
     """Return the probes the tree does not satisfy."""
     missing = []
@@ -264,25 +277,53 @@ def previous_commit(block: str) -> str | None:
     return match.group(1) if match else None
 
 
-def pin_block(commit: str) -> str:
+def pin_block(commit: str, submodules: list[str]) -> str:
+    # The pinned archive comes from GitHub's /archive/<sha>.tar.gz, which does
+    # not carry submodule contents, while bpf2go compiles control/kern/tproxy.c
+    # and trace/kern/trace.c against the headers submodule.  Stash the ones the
+    # tarball shipped materialized and put them back after the swap.
     return (
         f"{MARK_BEGIN}\n"
         f"# daed-src bundles wing/dae-core from dae's default branch instead of the commit\n"
         f"# dae-wing pins for it, so wing/ stops compiling against it.  Replace that tree with\n"
         f"# the pinned revision; .github/scripts/pin-daed-core.py fetches the archive into dl/\n"
         f"# before the build and only writes this block after probing the tree it contains.\n"
+        f"# The archive has no submodule contents, so the header trees the tarball ships are\n"
+        f"# kept across the swap -- bpf2go compiles the eBPF sources against them.\n"
         f"DAE_CORE_COMMIT:={commit}\n"
         f"DAE_CORE_SOURCE:=dae-core-{commit[:12]}.tar.gz\n"
+        f"DAE_CORE_SUBMODULES:={' '.join(submodules)}\n"
         f"define DaeCore/Install\n"
-        f"\trm -rf $(PKG_BUILD_DIR)/dae-core\n"
-        f"\tmkdir -p $(PKG_BUILD_DIR)/dae-core\n"
-        f"\t$(TAR) --strip-components=1 -C $(PKG_BUILD_DIR)/dae-core -xzf $(DL_DIR)/$(DAE_CORE_SOURCE)\n"
+        f"\t@set -e; \\\n"
+        f"\tcore=\"$(PKG_BUILD_DIR)/dae-core\"; \\\n"
+        f"\tkeep=\"$(PKG_BUILD_DIR)/.dae-core-submodules\"; \\\n"
+        f"\trm -rf \"$$keep\"; mkdir -p \"$$keep\"; \\\n"
+        f"\tfor path in $(DAE_CORE_SUBMODULES); do \\\n"
+        f"\t\t[ -d \"$$core/$$path\" ] || continue; \\\n"
+        f"\t\tmkdir -p \"$$keep/$$path\"; \\\n"
+        f"\t\tcp -a \"$$core/$$path/.\" \"$$keep/$$path/\"; \\\n"
+        f"\tdone; \\\n"
+        f"\trm -rf \"$$core\"; mkdir -p \"$$core\"; \\\n"
+        f"\t$(TAR) --strip-components=1 -C \"$$core\" -xzf \"$(DL_DIR)/$(DAE_CORE_SOURCE)\"; \\\n"
+        f"\tfor path in $(DAE_CORE_SUBMODULES); do \\\n"
+        f"\t\t[ -d \"$$keep/$$path\" ] || continue; \\\n"
+        f"\t\trm -rf \"$$core/$$path\"; mkdir -p \"$$core/$$path\"; \\\n"
+        f"\t\tcp -a \"$$keep/$$path/.\" \"$$core/$$path/\"; \\\n"
+        f"\tdone; \\\n"
+        f"\tfor path in $(DAE_CORE_SUBMODULES); do \\\n"
+        f"\t\t[ -n \"$$(ls -A \"$$core/$$path\" 2>/dev/null)\" ] || {{ \\\n"
+        f"\t\t\techo \"ERROR: dae-core submodule $$path is empty after pinning $(DAE_CORE_COMMIT)\"; \\\n"
+        f"\t\t\techo \"       the daed-src tarball must ship it materialized (see .github/scripts/pin-daed-core.py)\"; \\\n"
+        f"\t\t\texit 1; \\\n"
+        f"\t\t}}; \\\n"
+        f"\tdone; \\\n"
+        f"\trm -rf \"$$keep\"\n"
         f"endef\n"
         f"{MARK_END}\n"
     )
 
 
-def apply_pin(text: str, commit: str) -> str:
+def apply_pin(text: str, commit: str, submodules: list[str]) -> str:
     anchor = re.search(r"^PKG_HASH:=.*$", text, re.MULTILINE)
     if not anchor:
         raise PinError("the daed Makefile has no PKG_HASH line to anchor the dae-core pin on")
@@ -290,7 +331,13 @@ def apply_pin(text: str, commit: str) -> str:
         raise PinError("the daed Makefile's PKG_HASH line is not terminated by a newline")
     # Consume the anchor line's own newline and re-add it, so stripping the block
     # restores the file exactly.
-    text = text[: anchor.end()] + "\n" + pin_block(commit) + "\n" + text[anchor.end() + 1 :]
+    text = (
+        text[: anchor.end()]
+        + "\n"
+        + pin_block(commit, submodules)
+        + "\n"
+        + text[anchor.end() + 1 :]
+    )
 
     tar_line = re.search(
         r"^\t\$\(TAR\) --strip-components=1 -C \$\(DAED_BUILD_DIR\) -xzf \$\(DL_DIR\)/\$\(PKG_SOURCE\)$",
@@ -342,6 +389,18 @@ def main() -> int:
         shipped.mkdir()
         if extract_nested(archive, WING_CORE_PATH, shipped) == 0:
             raise PinError(f"{archive.name} carries no {WING_CORE_PATH}; the layout changed")
+
+        # GitHub's commit archives have no submodule contents, so the pinned tree
+        # arrives with empty control/kern/headers and trace/kern/headers.  The
+        # swap keeps the materialized ones from the tarball; without them bpf2go
+        # cannot compile the eBPF sources, so refuse to pin when they are absent.
+        submodules = submodule_paths(shipped)
+        empty = [p for p in submodules if not any((shipped / p).glob("*"))]
+        if empty:
+            raise PinError(
+                f"{archive.name} ships {WING_CORE_PATH} without materialized submodules "
+                f"({', '.join(empty)}); pin-daed-core.py cannot restore them"
+            )
 
         missing = probe_tree(shipped)
         if not missing:
@@ -409,11 +468,12 @@ def main() -> int:
                 )
 
             commit, origin = chosen
-            makefile.write_text(apply_pin(stripped, commit), encoding="utf-8")
+            makefile.write_text(apply_pin(stripped, commit, submodules), encoding="utf-8")
             log(f"   daed-core: pinned {commit[:12]} from {origin}")
             records.append(
                 f"daed dae-core: {commit} from {origin} "
-                f"(replaces the tree in {archive.name}, all {len(PROBES)} probes satisfied)"
+                f"(replaces the tree in {archive.name}, all {len(PROBES)} probes satisfied, "
+                f"keeps the shipped {', '.join(submodules) if submodules else 'submodules'})"
             )
 
     if args.provenance:
