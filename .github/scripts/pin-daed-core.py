@@ -69,14 +69,38 @@ PATCH_CALL = "\t$(DaeCore/ApplyPatch)\n"
 PATCH_DIR = "dae-core-patches"
 # The patches the daed package applies to whichever dae-core it builds, in this
 # order.  Order matters: the config-compat patch was generated against a tree
-# with the response_ttl patch already applied and both touch config/config.go.
-# Each entry carries the symbols that mean "this core already knows the option",
-# so a future core that caught up with dae main needs no patch at all.
+# with the response_ttl patch already applied and both touch config/config.go,
+# and the traffic-stats patch was generated on top of both.
+#
+# Each entry carries the probe that means "this core does not need the patch":
+# a file plus the markers that must all appear in it.  Several alternatives are
+# tried, so a core that solved the same problem another way (dae main meters the
+# TCP relay straight into the package-level recorders) is recognised too.
 CORE_PATCHES = (
-    ("dae-core-response-ttl.patch", ("ResponseTtl",)),
+    (
+        "dae-core-response-ttl.patch",
+        (("config/config.go", ("ResponseTtl",)),),
+    ),
     (
         "dae-core-config-compat.patch",
-        ("DisableTHP", "AutoSniffPunt", "BpfConnStateMapSize", "OptimisticStaleReplyTtl"),
+        (
+            (
+                "config/config.go",
+                ("DisableTHP", "AutoSniffPunt", "BpfConnStateMapSize", "OptimisticStaleReplyTtl"),
+            ),
+        ),
+    ),
+    (
+        "dae-core-traffic-stats.patch",
+        (
+            # This revision solved it the way the patch does.
+            ("control/runtime_stats.go", ("RecordUploadTraffic(n)",)),
+            # dae main meters the TCP relay straight into the package-level
+            # recorders.  The marker has to name the data path: the pristine
+            # revision also mentions both recorders, but only inside the unused
+            # RelayTCPContext wrapper, which is exactly the bug.
+            ("control/tcp.go", ("ingress, egress, RecordDownloadTraffic, RecordUploadTraffic",)),
+        ),
     ),
 )
 PATCHES_DIR = Path(__file__).resolve().parent.parent / "patches"
@@ -489,22 +513,31 @@ def apply_adjustments(
     return text
 
 
-def core_knows(root: Path, markers: tuple[str, ...]) -> bool:
-    """Whether the tree already carries the symbols a dae-core patch adds."""
-    config_go = root / "config" / "config.go"
-    if not config_go.is_file():
-        return False
-    text = config_go.read_text(encoding="utf-8", errors="replace")
-    return all(marker in text for marker in markers)
+def core_knows(root: Path, probe: tuple[tuple[str, tuple[str, ...]], ...]) -> bool:
+    """Whether the tree already solves what a dae-core patch adds.
+
+    ``probe`` is a tuple of alternatives; each alternative names a file and the
+    markers that must all appear in it.
+    """
+    for relative, markers in probe:
+        path = root / relative
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        if all(marker in text for marker in markers):
+            return True
+    return False
 
 
 def probe_patch_series(
-    core_tree: Path, workdir: Path, patches: tuple[tuple[str, tuple[str, ...]], ...]
+    core_tree: Path,
+    workdir: Path,
+    patches: tuple[tuple[str, tuple[tuple[str, tuple[str, ...]], ...]], ...],
 ) -> tuple[list[str], list[str]]:
     """Apply the dae-core patch series to a copy, in build order.
 
     Returns the patch file names the build has to apply and one provenance line
-    per patch.  Patches whose symbols the core already carries are skipped, so a
+    per patch.  Patches whose problem the core already solves are skipped, so a
     future core that caught up with dae main needs no patch at all.  Applying
     them cumulatively (rather than dry-running each against the pristine tree)
     is what makes the order dependence between them testable here instead of two
@@ -513,8 +546,8 @@ def probe_patch_series(
     probe = workdir / "patch-probe"
     needed: list[str] = []
     records: list[str] = []
-    for name, markers in patches:
-        if core_knows(core_tree, markers):
+    for name, alternatives in patches:
+        if core_knows(core_tree, alternatives):
             records.append(f"{name} not needed (the core already knows it)")
             continue
         patch = PATCHES_DIR / name

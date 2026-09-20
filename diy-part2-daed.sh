@@ -111,6 +111,16 @@ install -D -m644 "$repo_root/.github/patches/dae-core-response-ttl.patch" \
 install -D -m644 "$repo_root/.github/patches/dae-core-config-compat.patch" \
     "package/dae/daed/dae-core-patches/dae-core-config-compat.patch"
 
+# 同一套版本错配还让面板的流量统计归零：wing（dae-wing@dc503088，7 月）从**包级**
+# control.SnapshotRuntimeStats 读 uploadRate/uploadTotal，而这个内核版本的数据面只
+# 把字节记进每个控制面实例自己的 runtimeStats（RelayTCPContextWithRecords 传的是
+# c.runtimeUploadRecorder()），全局那份历史于是永远是空的——实机 2026-09-20 的面板
+# 就是 activeConnections=28、udpSessions=67 而 uploadTotal/downloadTotal 全 0。
+# 这份补丁把每一笔按实例的记账同时镜像到包级历史（带防重复计数判断），必须排在
+# 前两份之后：它也是照着打完那两份补丁的树生成的。
+install -D -m644 "$repo_root/.github/patches/dae-core-traffic-stats.patch" \
+    "package/dae/daed/dae-core-patches/dae-core-traffic-stats.patch"
+
 # 把这类"配置面漂移"变成构建期失败：断言 dae 包 example.dae 里出现的每个键都能被
 # daed 实际构建的那个 dae-core 接受（pin 过就用 pin 的归档，否则用 tarball 自带的
 # 那份）。上游下次给 dae 加键时，这里十分钟内报警，而不是等运行时把整份配置丢掉。

@@ -1,0 +1,142 @@
+# Traffic accounting for the dae core that is embedded in daed.
+#
+# daed's dashboard shows upload/download rate and totals from
+# general.runtimeOverview, which wing/ fills in dae/runtime.go by calling the
+# *package-level* control.SnapshotRuntimeStats(...) -- that snapshot reads
+# globalRuntimeStats.  The data path, however, meters every byte through the
+# plane-bound recorders (control/tcp.go: RelayTCPContextWithRecords(...,
+# c.runtimeDownloadRecorder(), c.runtimeUploadRecorder()); control/udp.go and
+# control/dns_listener.go do the same), and every plane carries its own store:
+# newControlPlaneWithContextOptions sets runtimeStats: newRuntimeStats(), so
+# runtimeStatsStore() never falls back to globalRuntimeStats.
+#
+# Net effect in this revision: the per-plane counters work, wing's package-level
+# snapshot never sees a byte.  On 2026-09-20 the router's own API said exactly
+# that while the proxy was passing traffic:
+#
+#   runtimeOverview(60s) -> uploadRate 0, downloadRate 0,
+#                           uploadTotal "0", downloadTotal "0",
+#                           activeConnections 28, udpSessions 67
+#
+# (the connection counters come from wing's own arguments, which is why they
+# look fine while the traffic numbers stay at zero).
+#
+# The mirror below keeps the package-level history that wing reads in sync with
+# the per-plane traffic.  It is guarded so nothing is counted twice: a plane
+# that has no store of its own already records into globalRuntimeStats through
+# runtimeStatsStore(), and only the other case needs the extra call.
+#
+# Upstream went a different way (dae main meters the TCP relay straight into the
+# package-level recorders and eventually dropped the package-level snapshot
+# altogether), but this revision ships wing/ from dae-wing@dc503088, which still
+# calls it -- hence the compatibility mirror here instead of a wing patch.
+#
+# Regenerate against a new core revision with:
+#   tar --strip-components=1 -C a -xzf dae-core-<sha12>.tar.gz
+#   cp -a a b && patch -p1 -s -d b -i <path to dae-core-response-ttl.patch>
+#   patch -p1 -s -d b -i <path to dae-core-config-compat.patch>
+#   # edit b/ as described above, then:
+#   diff -ruN a b > dae-core-traffic-stats.patch
+#
+# Verify with (dae_stub_ebpf avoids needing clang and the generated eBPF
+# objects):
+#   cd b && go build -tags dae_stub_ebpf ./config/... ./control/... ./cmd/...
+#   go test  -tags dae_stub_ebpf -count=1 ./config/ ./control/ ./cmd/
+# Verified that way against 85a1fc3c06e3765d143c868ba97ecd0be2aab4ea on top of
+# the two patches above: build clean, config/control/cmd suites green.  The new
+# control test fails without this patch -- "package snapshot totals = (0, 0),
+# want (1200, 800)", i.e. the exact symptom the dashboard showed -- and passes
+# with it, including the "counted exactly once" assertions.  The pre-existing
+# runtime-stats tests did not catch the mismatch because their fixtures build
+# planes without a store, which makes the recorders fall back to the package
+# level.
+diff -ruN a/control/runtime_stats.go b/control/runtime_stats.go
+--- a/control/runtime_stats.go	2026-04-22 16:54:08.000000000 +0800
++++ b/control/runtime_stats.go	2026-09-20 18:34:53.926616822 +0800
+@@ -285,14 +285,27 @@
+ 	if n <= 0 {
+ 		return
+ 	}
+-	c.runtimeStatsStore().record(uint64(n), 0)
++	if store := c.runtimeStatsStore(); store != globalRuntimeStats {
++		store.record(uint64(n), 0)
++	}
++	// The daed dashboard reads its numbers through the package-level
++	// SnapshotRuntimeStats, which only sees globalRuntimeStats. In this revision
++	// the data path meters every byte through the per-plane recorder above, so
++	// mirror the record into the package-level history as well -- otherwise
++	// runtimeOverview reports 0 B/s and 0 B for a router that is passing traffic.
++	RecordUploadTraffic(n)
+ }
+ 
+ func (c *ControlPlane) recordDownloadTraffic(n int64) {
+ 	if n <= 0 {
+ 		return
+ 	}
+-	c.runtimeStatsStore().record(0, uint64(n))
++	if store := c.runtimeStatsStore(); store != globalRuntimeStats {
++		store.record(0, uint64(n))
++	}
++	// See recordUploadTraffic: keep the package-level history (wing/ and the
++	// daed dashboard) in sync with the per-plane traffic.
++	RecordDownloadTraffic(n)
+ }
+ 
+ func (c *ControlPlane) SnapshotRuntimeStats(windowSec int, maxPoints int) RuntimeStatsSnapshot {
+diff -ruN a/control/runtime_stats_test.go b/control/runtime_stats_test.go
+--- a/control/runtime_stats_test.go	2026-09-20 18:36:35.953853362 +0800
++++ b/control/runtime_stats_test.go	2026-09-20 18:35:28.568867178 +0800
+@@ -224,6 +224,53 @@
+ 	}
+ }
+ 
++// TestControlPlaneRecorderFeedsPackageLevelSnapshot covers the accounting the
++// daed dashboard depends on: daed (wing/) reads runtimeOverview through the
++// package-level SnapshotRuntimeStats, while the data path meters bytes through
++// the plane-bound recorders, and newControlPlaneWithContextOptions always
++// installs a per-plane store. Without the mirror in recordUploadTraffic /
++// recordDownloadTraffic the package-level history stays empty and a busy router
++// reports 0 B/s and 0 B totals.
++func TestControlPlaneRecorderFeedsPackageLevelSnapshot(t *testing.T) {
++	resetRuntimeStatsForTest(t)
++
++	plane := &ControlPlane{runtimeStats: newRuntimeStats()}
++	plane.recordUploadTraffic(1200)
++	plane.recordDownloadTraffic(800)
++
++	snapshot := SnapshotRuntimeStats(3, 5, 60, 10)
++	if snapshot.UploadTotal != 1200 || snapshot.DownloadTotal != 800 {
++		t.Fatalf("package snapshot totals = (%d, %d), want (1200, 800)",
++			snapshot.UploadTotal, snapshot.DownloadTotal)
++	}
++	if snapshot.ActiveConnections != 3 || snapshot.UDPSessions != 5 {
++		t.Fatalf("package snapshot counters = (%d, %d), want (3, 5)",
++			snapshot.ActiveConnections, snapshot.UDPSessions)
++	}
++
++	// The plane keeps its own accounting...
++	planeSnapshot := plane.SnapshotRuntimeStats(60, 10)
++	if planeSnapshot.UploadTotal != 1200 || planeSnapshot.DownloadTotal != 800 {
++		t.Fatalf("plane totals = (%d, %d), want (1200, 800)",
++			planeSnapshot.UploadTotal, planeSnapshot.DownloadTotal)
++	}
++	// ...and every byte reaches the package-level history exactly once.
++	if got := globalRuntimeStats.uploadTotal.Load(); got != 1200 {
++		t.Fatalf("global upload total = %d, want 1200 (recorded exactly once)", got)
++	}
++	if got := globalRuntimeStats.downloadTotal.Load(); got != 800 {
++		t.Fatalf("global download total = %d, want 800 (recorded exactly once)", got)
++	}
++
++	// A plane that has no store of its own records straight into the
++	// package-level history, still without counting anything twice.
++	storeless := &ControlPlane{}
++	storeless.recordUploadTraffic(5)
++	if got := globalRuntimeStats.uploadTotal.Load(); got != 1205 {
++		t.Fatalf("global upload total after storeless record = %d, want 1205", got)
++	}
++}
++
+ func TestRelayTCPRecordsRuntimeTrafficTotals(t *testing.T) {
+ 	resetRuntimeStatsForTest(t)
+ 
