@@ -282,6 +282,35 @@ def pin_block(commit: str, submodules: list[str]) -> str:
     # not carry submodule contents, while bpf2go compiles control/kern/tproxy.c
     # and trace/kern/trace.c against the headers submodule.  Stash the ones the
     # tarball shipped materialized and put them back after the swap.
+    #
+    # The recipe deliberately uses no shell variables: OpenWrt expands a
+    # Build/Prepare body one more time than a plain `make` invocation does, so
+    # $$path reached the shell as $p followed by "ath" and the emptiness check
+    # looked at the wrong directory.  Everything below is expanded by make
+    # ($(foreach), $(PKG_BUILD_DIR), ...) and carries no dollar the shell could
+    # reinterpret, which makes the recipe independent of how often it expands.
+    paths = " ".join(submodules)
+    stash = " ".join(
+        f"mkdir -p \"$(PKG_BUILD_DIR)/.dae-core-submodules/{path}\";"
+        f" cp -a \"$(PKG_BUILD_DIR)/dae-core/{path}/.\""
+        f" \"$(PKG_BUILD_DIR)/.dae-core-submodules/{path}/\";"
+        for path in submodules
+    )
+    restore = " ".join(
+        f"rm -rf \"$(PKG_BUILD_DIR)/dae-core/{path}\";"
+        f" mkdir -p \"$(PKG_BUILD_DIR)/dae-core/{path}\";"
+        f" cp -a \"$(PKG_BUILD_DIR)/.dae-core-submodules/{path}/.\""
+        f" \"$(PKG_BUILD_DIR)/dae-core/{path}/\";"
+        for path in submodules
+    )
+    verify = " ".join(
+        f"ls -A \"$(PKG_BUILD_DIR)/dae-core/{path}\" 2>/dev/null | grep -q . ||"
+        f" {{ echo \"ERROR: dae-core submodule {path} is missing after pinning"
+        f" {commit}\";"
+        f" echo \"       the daed-src tarball must ship it materialized"
+        f" (see .github/scripts/pin-daed-core.py)\"; exit 1; }};"
+        for path in submodules
+    )
     return (
         f"{MARK_BEGIN}\n"
         f"# daed-src bundles wing/dae-core from dae's default branch instead of the commit\n"
@@ -292,32 +321,17 @@ def pin_block(commit: str, submodules: list[str]) -> str:
         f"# kept across the swap -- bpf2go compiles the eBPF sources against them.\n"
         f"DAE_CORE_COMMIT:={commit}\n"
         f"DAE_CORE_SOURCE:=dae-core-{commit[:12]}.tar.gz\n"
-        f"DAE_CORE_SUBMODULES:={' '.join(submodules)}\n"
+        f"DAE_CORE_SUBMODULES:={paths}\n"
         f"define DaeCore/Install\n"
         f"\t@set -e; \\\n"
-        f"\tcore=\"$(PKG_BUILD_DIR)/dae-core\"; \\\n"
-        f"\tkeep=\"$(PKG_BUILD_DIR)/.dae-core-submodules\"; \\\n"
-        f"\trm -rf \"$$keep\"; mkdir -p \"$$keep\"; \\\n"
-        f"\tfor path in $(DAE_CORE_SUBMODULES); do \\\n"
-        f"\t\t[ -d \"$$core/$$path\" ] || continue; \\\n"
-        f"\t\tmkdir -p \"$$keep/$$path\"; \\\n"
-        f"\t\tcp -a \"$$core/$$path/.\" \"$$keep/$$path/\"; \\\n"
-        f"\tdone; \\\n"
-        f"\trm -rf \"$$core\"; mkdir -p \"$$core\"; \\\n"
-        f"\t$(TAR) --strip-components=1 -C \"$$core\" -xzf \"$(DL_DIR)/$(DAE_CORE_SOURCE)\"; \\\n"
-        f"\tfor path in $(DAE_CORE_SUBMODULES); do \\\n"
-        f"\t\t[ -d \"$$keep/$$path\" ] || continue; \\\n"
-        f"\t\trm -rf \"$$core/$$path\"; mkdir -p \"$$core/$$path\"; \\\n"
-        f"\t\tcp -a \"$$keep/$$path/.\" \"$$core/$$path/\"; \\\n"
-        f"\tdone; \\\n"
-        f"\tfor path in $(DAE_CORE_SUBMODULES); do \\\n"
-        f"\t\t[ -n \"$$(ls -A \"$$core/$$path\" 2>/dev/null)\" ] || {{ \\\n"
-        f"\t\t\techo \"ERROR: dae-core submodule $$path is empty after pinning $(DAE_CORE_COMMIT)\"; \\\n"
-        f"\t\t\techo \"       the daed-src tarball must ship it materialized (see .github/scripts/pin-daed-core.py)\"; \\\n"
-        f"\t\t\texit 1; \\\n"
-        f"\t\t}}; \\\n"
-        f"\tdone; \\\n"
-        f"\trm -rf \"$$keep\"\n"
+        f"\trm -rf \"$(PKG_BUILD_DIR)/.dae-core-submodules\"; \\\n"
+        f"\t{stash} \\\n"
+        f"\trm -rf \"$(PKG_BUILD_DIR)/dae-core\"; \\\n"
+        f"\tmkdir -p \"$(PKG_BUILD_DIR)/dae-core\"; \\\n"
+        f"\t$(TAR) --strip-components=1 -C \"$(PKG_BUILD_DIR)/dae-core\" -xzf \"$(DL_DIR)/$(DAE_CORE_SOURCE)\"; \\\n"
+        f"\t{restore} \\\n"
+        f"\t{verify} \\\n"
+        f"\trm -rf \"$(PKG_BUILD_DIR)/.dae-core-submodules\"\n"
         f"endef\n"
         f"{MARK_END}\n"
     )
