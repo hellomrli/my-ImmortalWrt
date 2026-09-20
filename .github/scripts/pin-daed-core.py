@@ -311,7 +311,7 @@ def pin_block(commit: str, submodules: list[str]) -> str:
         f" (see .github/scripts/pin-daed-core.py)\"; exit 1; }};"
         for path in submodules
     )
-    return (
+    block = (
         f"{MARK_BEGIN}\n"
         f"# daed-src bundles wing/dae-core from dae's default branch instead of the commit\n"
         f"# dae-wing pins for it, so wing/ stops compiling against it.  Replace that tree with\n"
@@ -335,6 +335,26 @@ def pin_block(commit: str, submodules: list[str]) -> str:
         f"endef\n"
         f"{MARK_END}\n"
     )
+    check_recipe_is_expansion_safe(block)
+    return block
+
+
+def check_recipe_is_expansion_safe(block: str) -> None:
+    """The recipe must not carry a dollar the shell could reinterpret.
+
+    OpenWrt expands a Build/Prepare body one more time than a plain make
+    invocation: with shell variables in it, ``$$path`` reached the shell as
+    ``$p`` followed by ``ath`` and the emptiness check inspected a directory
+    that never exists.  Everything below is expanded by make, so the block must
+    stay free of ``$$``; asserting that here keeps the failure out of a
+    two-hour build if someone reintroduces one.
+    """
+    if "$$" in block:
+        raise PinError(
+            "the generated dae-core recipe contains a shell-level '$'; use make-level "
+            "expansion ($(foreach), $(PKG_BUILD_DIR), ...) instead, because OpenWrt "
+            "expands Build/Prepare more than once"
+        )
 
 
 def apply_pin(text: str, commit: str, submodules: list[str]) -> str:
