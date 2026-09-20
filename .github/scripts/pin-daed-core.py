@@ -283,12 +283,13 @@ def pin_block(commit: str, submodules: list[str]) -> str:
     # and trace/kern/trace.c against the headers submodule.  Stash the ones the
     # tarball shipped materialized and put them back after the swap.
     #
-    # The recipe deliberately uses no shell variables: OpenWrt expands a
-    # Build/Prepare body one more time than a plain `make` invocation does, so
-    # $$path reached the shell as $p followed by "ath" and the emptiness check
-    # looked at the wrong directory.  Everything below is expanded by make
-    # ($(foreach), $(PKG_BUILD_DIR), ...) and carries no dollar the shell could
-    # reinterpret, which makes the recipe independent of how often it expands.
+    # The recipe deliberately uses no shell variables.  OpenWrt pulls a package's
+    # rules in through `$(eval $(call BuildPackage,...))`, and $(eval) expands its
+    # argument twice: a shell variable written as $$path becomes $path on the
+    # first pass and $p followed by "ath" on the second, so the emptiness check
+    # inspected a directory that never exists.  Everything below is expanded by
+    # make ($(foreach), $(PKG_BUILD_DIR), ...) and carries no dollar, which makes
+    # the recipe independent of how often it expands.
     paths = " ".join(submodules)
     stash = " ".join(
         f"mkdir -p \"$(PKG_BUILD_DIR)/.dae-core-submodules/{path}\";"
@@ -342,18 +343,19 @@ def pin_block(commit: str, submodules: list[str]) -> str:
 def check_recipe_is_expansion_safe(block: str) -> None:
     """The recipe must not carry a dollar the shell could reinterpret.
 
-    OpenWrt expands a Build/Prepare body one more time than a plain make
-    invocation: with shell variables in it, ``$$path`` reached the shell as
-    ``$p`` followed by ``ath`` and the emptiness check inspected a directory
-    that never exists.  Everything below is expanded by make, so the block must
-    stay free of ``$$``; asserting that here keeps the failure out of a
-    two-hour build if someone reintroduces one.
+    OpenWrt inlines a package's rules with `$(eval $(call BuildPackage,...))`,
+    and $(eval) expands its argument twice.  With shell variables in the recipe,
+    ``$$path`` therefore reached the running shell as ``$p`` followed by ``ath``,
+    and the emptiness check inspected a directory that never exists.  Everything
+    below is expanded by make, so the block must stay free of ``$$``; asserting
+    that here keeps the failure out of a two-hour build if someone reintroduces
+    one.
     """
     if "$$" in block:
         raise PinError(
             "the generated dae-core recipe contains a shell-level '$'; use make-level "
             "expansion ($(foreach), $(PKG_BUILD_DIR), ...) instead, because OpenWrt "
-            "expands Build/Prepare more than once"
+            "inlines rules with $(eval $(call BuildPackage,...)) and eval expands twice"
         )
 
 
