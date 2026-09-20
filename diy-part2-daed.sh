@@ -94,6 +94,13 @@ mkdir -p "$dae_patch_dir"
 install -m644 "$repo_root/.github/patches/010-dns-response-ttl.patch" \
     "$dae_patch_dir/010-dns-response-ttl.patch"
 
+# daed 的内嵌 dae-core 也在进程内构建控制面并解析同一份 dae 配置，它的
+# config/parser.go 同样拒绝未知键：LuCI 表单写入 response_ttl 后，切到 daed 后端会
+# 让 daed 起不来。这份补丁针对 dae-wing 锁定的那个内核版本（上游原版补丁，外加夹具
+# 修正与解析器验收测试），由 pin-daed-core.py 在写 Makefile 前验证可应用。
+install -D -m644 "$repo_root/.github/patches/dae-core-response-ttl.patch" \
+    "package/dae/daed/dae-core-patches/dae-core-response-ttl.patch"
+
 # 预检 package/dae 下各包的 patches/ 能否照 OpenWrt 的方式干净应用。
 # OpenWrt 通过 scripts/patch-kernel.sh 逐个应用：`for i in ${patchdir}/*` 是 shell
 # 通配符展开，即字典序，任一个失败立即 exit 1。这里对 pin-daede-source.py 刚取进

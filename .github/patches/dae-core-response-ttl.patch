@@ -1,0 +1,288 @@
+# response_ttl for the dae core that is embedded in daed (wing/dae-core).
+#
+# daed runs the dae data plane in-process (wing/dae/run.go builds
+# control.NewControlPlane), and it shares the config schema handling with the
+# standalone daemon. Its config/parser.go rejects unknown keys
+# ("unexpected key: %v"), so while the daed backend is active a config rendered
+# by luci-app-daede -- which writes response_ttl whenever the LuCI field is
+# above zero -- would make daed refuse to start. The standalone dae package
+# carries the same feature through .github/patches/010-dns-response-ttl.patch;
+# this one covers the copy daed bundles.
+#
+# The core daed embeds is the revision dae-wing pins for wing/dae-core
+# (daeuniverse/daed wing@dc503088 -> dae-core@85a1fc3c, April 2026), which is
+# also why upstream's own 010-dns-response-ttl.patch applies here unchanged:
+# upstream wrote it for exactly this revision. Two deltas were applied on top:
+#
+#   * control/dns_response_ttl_test.go: upstream's fixture builds a controller
+#     through newTestDnsController(), which leaves log nil, and
+#     NormalizeAndCacheDnsResp_ dereferences it in updateDnsCache -- the test
+#     panicked instead of running. It now uses newScopedDnsController, and both
+#     cases pass.
+#   * config/response_ttl_test.go: new. Asserts that a config carrying
+#     response_ttl parses and yields the value, which is the property this patch
+#     exists for.
+#
+# Regenerate against a new core revision with:
+#   tar --strip-components=1 -C a -xzf dae-core-<sha12>.tar.gz
+#   cp -a a b && patch -p1 -d b < <upstream 010-dns-response-ttl.patch>
+#   # adjust b/ as described above, then:
+#   diff -ruN a b > dae-core-response-ttl.patch
+#
+# Verify with (dae_stub_ebpf avoids needing clang and the generated eBPF
+# objects):
+#   cd b && go build -tags dae_stub_ebpf ./config/... ./control/...
+#   go test  -tags dae_stub_ebpf -count=1 ./config/ ./control/
+# Verified that way against 85a1fc3c06e3765d143c868ba97ecd0be2aab4ea: build
+# clean, both new tests pass, and the config and control suites are green.
+diff -ruN a/cmd/reload_manager.go b/cmd/reload_manager.go
+--- a/cmd/reload_manager.go	2026-04-22 16:54:08.000000000 +0800
++++ b/cmd/reload_manager.go	2026-09-20 13:35:01.367768130 +0800
+@@ -423,5 +423,8 @@
+ 	b.WriteString("max_cache_size=")
+ 	b.WriteString(strconv.Itoa(dns.MaxCacheSize))
+ 	b.WriteByte(';')
++	b.WriteString("response_ttl=")
++	b.WriteString(strconv.Itoa(dns.ResponseTtl))
++	b.WriteByte(';')
+ 	return b.String()
+ }
+diff -ruN a/cmd/run_shutdown_test.go b/cmd/run_shutdown_test.go
+--- a/cmd/run_shutdown_test.go	2026-04-22 16:54:08.000000000 +0800
++++ b/cmd/run_shutdown_test.go	2026-09-20 13:35:01.367884594 +0800
+@@ -516,6 +516,7 @@
+ 		"OptimisticCache":    {},
+ 		"OptimisticCacheTtl": {},
+ 		"MaxCacheSize":       {},
++		"ResponseTtl":        {},
+ 	}
+ 
+ 	dnsType := reflect.TypeOf(config.Dns{})
+diff -ruN a/config/config.go b/config/config.go
+--- a/config/config.go	2026-04-22 16:54:08.000000000 +0800
++++ b/config/config.go	2026-09-20 13:35:01.367982681 +0800
+@@ -158,6 +158,7 @@
+ 	OptimisticCache    bool            `mapstructure:"optimistic_cache" default:"true"`
+ 	OptimisticCacheTtl int             `mapstructure:"optimistic_cache_ttl" default:"60"`
+ 	MaxCacheSize       int             `mapstructure:"max_cache_size" default:"0"`
++	ResponseTtl        int             `mapstructure:"response_ttl" default:"0"`
+ }
+ 
+ type Routing struct {
+diff -ruN a/config/desc.go b/config/desc.go
+--- a/config/desc.go	2026-04-22 16:54:08.000000000 +0800
++++ b/config/desc.go	2026-09-20 13:35:01.368047931 +0800
+@@ -64,6 +64,7 @@
+ var DnsDesc = Desc{
+ 	"ipversion_prefer": "For example, if ipversion_prefer is 4 and the domain name has both type A and type AAAA records, the dae will only respond to type A queries and response empty answer to type AAAA queries.",
+ 	"fixed_domain_ttl": "Give a fixed ttl for domains. Zero means that dae will request to upstream every time and not cache DNS results for these domains.",
++	"response_ttl":     "Override the TTL returned to downstream DNS clients. Zero keeps dae's default behavior.",
+ 	"upstream":         "Value can be scheme://host:port, where the scheme can be tcp/udp/tcp+udp.\nIf host is a domain and has both IPv4 and IPv6 record, dae will automatically choose IPv4 or IPv6 to use according to group policy (such as min latency policy).\nPlease make sure DNS traffic will go through and be forwarded by dae, which is REQUIRED for domain routing.\nIf dial_mode is \"ip\", the upstream DNS answer SHOULD NOT be polluted, so domestic public DNS is not recommended.",
+ 	"request": `DNS request routing for ordinary client traffic uses qname and qtype.
+ Built-in outbounds for ordinary DNS requests: asis, reject.
+diff -ruN a/config/response_ttl_test.go b/config/response_ttl_test.go
+--- a/config/response_ttl_test.go	1970-01-01 08:00:00.000000000 +0800
++++ b/config/response_ttl_test.go	2026-09-20 13:35:16.051527146 +0800
+@@ -0,0 +1,47 @@
++/*
++ * SPDX-License-Identifier: AGPL-3.0-only
++ * Copyright (c) 2022-2026, daeuniverse Organization <dae@v2raya.org>
++ */
++
++package config
++
++import (
++	"testing"
++
++	"github.com/daeuniverse/dae/pkg/config_parser"
++	"github.com/stretchr/testify/require"
++)
++
++// TestResponseTtlIsAcceptedByTheParser pins why daed carries the response_ttl
++// patch at all: config/parser.go rejects unknown keys ("unexpected key: %v"),
++// so while the daed backend is active a config generated by luci-app-daede
++// (which writes response_ttl whenever the LuCI field is above zero) would
++// otherwise make daed refuse to start.
++func TestResponseTtlIsAcceptedByTheParser(t *testing.T) {
++	sections, err := config_parser.Parse(`
++global {
++  log_level: info
++}
++
++dns {
++  response_ttl: 60
++  upstream {
++    google: "8.8.8.8:53"
++  }
++  routing {
++    request {
++      fallback: google
++    }
++  }
++}
++
++routing {
++  fallback: direct
++}
++`)
++	require.NoError(t, err)
++
++	conf, err := New(sections)
++	require.NoError(t, err)
++	require.Equal(t, 60, conf.Dns.ResponseTtl)
++}
+diff -ruN a/control/control_plane.go b/control/control_plane.go
+--- a/control/control_plane.go	2026-04-22 16:54:08.000000000 +0800
++++ b/control/control_plane.go	2026-09-20 13:35:01.368424890 +0800
+@@ -770,6 +770,7 @@
+ 	}
+ 	plane.dnsRouting = dnsUpstream
+ 	plane.dnsFixedDomainTtl = fixedDomainTtl
++	plane.dnsResponseTtl = dnsConfig.ResponseTtl
+ 	dnsControllerOption := plane.dnsControllerOption()
+ 	dnsControllerOption.OptimisticCache = dnsConfig.OptimisticCache
+ 	dnsControllerOption.OptimisticCacheTtl = dnsConfig.OptimisticCacheTtl
+@@ -1211,6 +1212,7 @@
+ 		Log:              c.log,
+ 		LifecycleContext: c.ctx,
+ 		ConcurrencyLimit: 0,
++		ResponseTtl:      c.dnsResponseTtl,
+ 		CacheAccessCallback: func(cache *DnsCache) (err error) {
+ 			if err = c.core.BatchUpdateDomainRouting(cache); err != nil {
+ 				return fmt.Errorf("BatchUpdateDomainRouting: %w", err)
+diff -ruN a/control/dns_control.go b/control/dns_control.go
+--- a/control/dns_control.go	2026-04-22 16:54:08.000000000 +0800
++++ b/control/dns_control.go	2026-09-20 13:35:01.368876606 +0800
+@@ -82,6 +82,7 @@
+ 	OptimisticCache       bool
+ 	OptimisticCacheTtl    int // 0 means never expire (rely on LRU eviction)
+ 	MaxCacheSize          int // maximum number of cache entries (0 = unlimited)
++	ResponseTtl           int
+ }
+ 
+ type dnsControllerRuntimeState struct {
+@@ -94,6 +95,7 @@
+ 	bestDialerChooser     func(ctx context.Context, req *udpRequest, upstream *dns.Upstream) (*dialArgument, error)
+ 	timeoutExceedCallback func(dialArgument *dialArgument, err error)
+ 	fixedDomainTtl        map[string]int
++	responseTtl           int
+ }
+ 
+ type dnsControllerStore struct {
+@@ -170,6 +172,9 @@
+ 	if err != nil {
+ 		return 0, false, 0, 0, err
+ 	}
++	if option.ResponseTtl < 0 {
++		return 0, false, 0, 0, fmt.Errorf("response_ttl must be greater than or equal to 0")
++	}
+ 	optimisticCacheTtl = option.OptimisticCacheTtl
+ 	maxCacheSize = option.MaxCacheSize
+ 	if optimisticCacheTtl == 0 && maxCacheSize == 0 {
+@@ -422,6 +427,7 @@
+ 		bestDialerChooser:     option.BestDialerChooser,
+ 		timeoutExceedCallback: option.TimeoutExceedCallback,
+ 		fixedDomainTtl:        option.FixedDomainTtl,
++		responseTtl:           option.ResponseTtl,
+ 	})
+ 	return nil
+ }
+@@ -1541,10 +1547,16 @@
+ 		ttl = 31536000
+ 	}
+ 
+-	// For A/AAAA records, we set TTL to 0 to prevent downstream caching while we manage it.
++	responseTtl := 0
++	if rt := c.runtime(); rt != nil {
++		responseTtl = rt.responseTtl
++	}
++
++	// For A/AAAA records, we set TTL to 0 by default to prevent downstream caching while we manage it.
++	// When response_ttl is set, use it as the downstream-visible TTL.
+ 	if q.Qtype == dnsmessage.TypeA || q.Qtype == dnsmessage.TypeAAAA {
+ 		for i := range msg.Answer {
+-			msg.Answer[i].Header().Ttl = 0
++			msg.Answer[i].Header().Ttl = uint32(responseTtl)
+ 		}
+ 	}
+ 
+diff -ruN a/control/dns_response_ttl_test.go b/control/dns_response_ttl_test.go
+--- a/control/dns_response_ttl_test.go	1970-01-01 08:00:00.000000000 +0800
++++ b/control/dns_response_ttl_test.go	2026-09-20 13:35:01.390743865 +0800
+@@ -0,0 +1,57 @@
++/*
++ * SPDX-License-Identifier: AGPL-3.0-only
++ * Copyright (c) 2022-2026, daeuniverse Organization <dae@v2raya.org>
++ */
++
++package control
++
++import (
++	"net"
++	"testing"
++
++	dnsmessage "github.com/miekg/dns"
++	"github.com/stretchr/testify/require"
++)
++
++func TestDnsController_ResponseTtlOverride(t *testing.T) {
++	for _, tt := range []struct {
++		name        string
++		responseTtl int
++		wantTtl     uint32
++	}{
++		{name: "default_zero", responseTtl: 0, wantTtl: 0},
++		{name: "override", responseTtl: 60, wantTtl: 60},
++	} {
++		t.Run(tt.name, func(t *testing.T) {
++			// newScopedDnsController builds a real controller (with a logger);
++			// newTestDnsController leaves log nil and NormalizeAndCacheDnsResp_
++			// dereferences it in updateDnsCache.
++			ctrl := setTestDnsControllerRuntime(newScopedDnsController(t), func(rt *dnsControllerRuntimeState) {
++				rt.responseTtl = tt.responseTtl
++			})
++
++			msg := new(dnsmessage.Msg)
++			msg.SetReply(&dnsmessage.Msg{
++				Question: []dnsmessage.Question{{
++					Name:   "example.com.",
++					Qtype:  dnsmessage.TypeA,
++					Qclass: dnsmessage.ClassINET,
++				}},
++			})
++			msg.Answer = []dnsmessage.RR{
++				&dnsmessage.A{
++					Hdr: dnsmessage.RR_Header{
++						Name:   "example.com.",
++						Rrtype: dnsmessage.TypeA,
++						Class:  dnsmessage.ClassINET,
++						Ttl:    300,
++					},
++					A: net.IPv4(93, 184, 216, 34),
++				},
++			}
++
++			require.NoError(t, ctrl.NormalizeAndCacheDnsResp_(msg, "example.com.:1"))
++			require.Equal(t, tt.wantTtl, msg.Answer[0].Header().Ttl)
++		})
++	}
++}
+diff -ruN a/control/dns_runtime.go b/control/dns_runtime.go
+--- a/control/dns_runtime.go	2026-04-22 16:54:08.000000000 +0800
++++ b/control/dns_runtime.go	2026-09-20 13:35:01.369296657 +0800
+@@ -20,6 +20,7 @@
+ 	dnsController             *DnsController
+ 	dnsRouting                *dns.Dns
+ 	dnsFixedDomainTtl         map[string]int
++	dnsResponseTtl            int
+ 	dnsListener               *DNSListener
+ 	dnsListenerStopRegistered bool
+ 	delayDNSListenerStart     bool
+@@ -262,6 +263,7 @@
+ 	r.dnsController = nil
+ 	r.dnsRouting = nil
+ 	r.dnsFixedDomainTtl = nil
++	r.dnsResponseTtl = 0
+ 	r.dnsListener = nil
+ 	r.dnsListenerStopRegistered = false
+ 	r.delayDNSListenerStart = false

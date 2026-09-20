@@ -20,10 +20,16 @@ fetched ``dl/daed-src-*.tar.gz``, and before ``make download``:
 * otherwise resolve the commit dae-wing really pins -- through daed's ``wing``
   submodule when that is reachable, else dae-wing's default branch -- download
   that archive into ``dl/`` and point the daed Makefile's Build/Prepare at it;
+* apply ``.github/patches/dae-core-response-ttl.patch`` on top of whichever core
+  the daed package ends up building (the pinned one, or the shipped tree when it
+  already matches), because daed parses the dae config in-process and rejects
+  unknown keys -- without the patch a config rendered by luci-app-daede while
+  the daed backend is active would make daed refuse to start;
 * reuse the previously written pin when the GitHub API is unreachable, so a
   transient API outage cannot break a build that already worked;
-* fail loudly when no candidate satisfies the probe, instead of letting the
-  compile stage discover it two hours later.
+* fail loudly when no candidate satisfies the probe, or when the response_ttl
+  patch no longer applies, instead of letting the compile stage discover it two
+  hours later.
 """
 
 from __future__ import annotations
@@ -34,6 +40,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 import tarfile
 import tempfile
@@ -49,9 +56,18 @@ ARCHIVE_URL = f"https://github.com/{CORE_REPO}/archive/{{commit}}.tar.gz"
 
 DAED_MAKEFILE = Path("package/dae/daed/Makefile")
 WING_CORE_PATH = "wing/dae-core"
-MARK_BEGIN = "# DAE_CORE_PIN_BEGIN (written by .github/scripts/pin-daed-core.py)"
-MARK_END = "# DAE_CORE_PIN_END"
+MARK_BEGIN = "# DAE_CORE_ADJUST_BEGIN (written by .github/scripts/pin-daed-core.py)"
+MARK_END = "# DAE_CORE_ADJUST_END"
+# Blocks written before the response_ttl step existed; stripped as well so a
+# re-run over an already adjusted Makefile cannot leave a duplicate behind.
+LEGACY_MARKS = (
+    ("# DAE_CORE_PIN_BEGIN (written by .github/scripts/pin-daed-core.py)", "# DAE_CORE_PIN_END"),
+)
 INSTALL_CALL = "\t$(DaeCore/Install)\n"
+PATCH_CALL = "\t$(DaeCore/ApplyPatch)\n"
+PATCH_DIR = "dae-core-patches"
+PATCH_NAME = "dae-core-response-ttl.patch"
+REPO_PATCH = Path(__file__).resolve().parent.parent / "patches" / PATCH_NAME
 GOFLAGS_RE = re.compile(r'^GO_PKG_BUILD_VARS\+= GOFLAGS="([^"]*)"$', re.MULTILINE)
 MODULE_MODE_FLAG = "-mod=mod"
 
@@ -264,14 +280,18 @@ def strip_pin(text: str) -> tuple[str, str]:
     re-running the script leaves the Makefile byte-identical.  The module-mode
     flag the pin adds to GOFLAGS is dropped on the way out for the same reason.
     """
-    pattern = re.compile(
-        rf"^{re.escape(MARK_BEGIN)}$.*?^{re.escape(MARK_END)}$\n\n?",
-        re.MULTILINE | re.DOTALL,
-    )
-    match = pattern.search(text)
-    previous = match.group(0) if match else ""
-    text = pattern.sub("", text, count=1)
-    text = text.replace(INSTALL_CALL, "")
+    blocks = ((MARK_BEGIN, MARK_END), *LEGACY_MARKS)
+    previous = ""
+    for begin, end in blocks:
+        pattern = re.compile(
+            rf"^{re.escape(begin)}$.*?^{re.escape(end)}$\n\n?",
+            re.MULTILINE | re.DOTALL,
+        )
+        match = pattern.search(text)
+        if match and not previous:
+            previous = match.group(0)
+        text = pattern.sub("", text, count=1)
+    text = text.replace(INSTALL_CALL, "").replace(PATCH_CALL, "")
     return drop_module_mode(text), previous
 
 
@@ -309,19 +329,27 @@ def previous_commit(block: str) -> str | None:
     return match.group(1) if match else None
 
 
-def pin_block(commit: str, submodules: list[str]) -> str:
-    # The pinned archive comes from GitHub's /archive/<sha>.tar.gz, which does
-    # not carry submodule contents, while bpf2go compiles control/kern/tproxy.c
-    # and trace/kern/trace.c against the headers submodule.  Stash the ones the
-    # tarball shipped materialized and put them back after the swap.
+def adjustment_block(
+    commit: str | None, submodules: list[str], patch_file: str | None
+) -> str:
+    # Two adjustments can be needed, in this order:
     #
-    # The recipe deliberately uses no shell variables.  OpenWrt pulls a package's
+    #  * replace wing/dae-core with the revision dae-wing pins, when the tarball
+    #    shipped dae's default branch instead.  That archive comes from GitHub's
+    #    /archive/<sha>.tar.gz, which carries no submodule contents, while
+    #    bpf2go compiles control/kern/tproxy.c and trace/kern/trace.c against
+    #    the headers submodule -- so the header trees the tarball ships are
+    #    stashed and put back across the swap.
+    #  * apply the response_ttl patch, so the daed backend accepts a config that
+    #    luci-app-daede renders while the LuCI field is above zero.
+    #
+    # The recipes deliberately use no shell variables.  OpenWrt pulls a package's
     # rules in through `$(eval $(call BuildPackage,...))`, and $(eval) expands its
     # argument twice: a shell variable written as $$path becomes $path on the
     # first pass and $p followed by "ath" on the second, so the emptiness check
     # inspected a directory that never exists.  Everything below is expanded by
     # make ($(foreach), $(PKG_BUILD_DIR), ...) and carries no dollar, which makes
-    # the recipe independent of how often it expands.
+    # the recipes independent of how often they expand.
     paths = " ".join(submodules)
     stash = " ".join(
         f"mkdir -p \"$(PKG_BUILD_DIR)/.dae-core-submodules/{path}\";"
@@ -344,33 +372,51 @@ def pin_block(commit: str, submodules: list[str]) -> str:
         f" (see .github/scripts/pin-daed-core.py)\"; exit 1; }};"
         for path in submodules
     )
-    block = (
-        f"{MARK_BEGIN}\n"
-        f"# daed-src bundles wing/dae-core from dae's default branch instead of the commit\n"
-        f"# dae-wing pins for it, so wing/ stops compiling against it.  Replace that tree with\n"
-        f"# the pinned revision; .github/scripts/pin-daed-core.py fetches the archive into dl/\n"
-        f"# before the build and only writes this block after probing the tree it contains.\n"
-        f"# The archive has no submodule contents, so the header trees the tarball ships are\n"
-        f"# kept across the swap -- bpf2go compiles the eBPF sources against them.\n"
-        f"# wing/go.sum was written against the tree that ships in the tarball, so the pin\n"
-        f"# also puts the Go build in -mod=mod mode further down: the pinned revision pulls\n"
-        f"# in modules that one never imported, and readonly mode fails on the missing sums.\n"
-        f"DAE_CORE_COMMIT:={commit}\n"
-        f"DAE_CORE_SOURCE:=dae-core-{commit[:12]}.tar.gz\n"
-        f"DAE_CORE_SUBMODULES:={paths}\n"
-        f"define DaeCore/Install\n"
-        f"\t@set -e; \\\n"
-        f"\trm -rf \"$(PKG_BUILD_DIR)/.dae-core-submodules\"; \\\n"
-        f"\t{stash} \\\n"
-        f"\trm -rf \"$(PKG_BUILD_DIR)/dae-core\"; \\\n"
-        f"\tmkdir -p \"$(PKG_BUILD_DIR)/dae-core\"; \\\n"
-        f"\t$(TAR) --strip-components=1 -C \"$(PKG_BUILD_DIR)/dae-core\" -xzf \"$(DL_DIR)/$(DAE_CORE_SOURCE)\"; \\\n"
-        f"\t{restore} \\\n"
-        f"\t{verify} \\\n"
-        f"\trm -rf \"$(PKG_BUILD_DIR)/.dae-core-submodules\"\n"
-        f"endef\n"
-        f"{MARK_END}\n"
-    )
+
+    parts = [MARK_BEGIN]
+    if commit:
+        parts += [
+            "# daed-src bundles wing/dae-core from dae's default branch instead of the commit",
+            "# dae-wing pins for it, so wing/ stops compiling against it.  Replace that tree with",
+            "# the pinned revision; .github/scripts/pin-daed-core.py fetches the archive into dl/",
+            "# before the build and only writes this block after probing the tree it contains.",
+            "# The archive has no submodule contents, so the header trees the tarball ships are",
+            "# kept across the swap -- bpf2go compiles the eBPF sources against them.",
+            "# wing/go.sum was written against the tree that ships in the tarball, so the pin",
+            "# also puts the Go build in -mod=mod mode further down: the pinned revision pulls",
+            "# in modules that one never imported, and readonly mode fails on the missing sums.",
+            f"DAE_CORE_COMMIT:={commit}",
+            f"DAE_CORE_SOURCE:=dae-core-{commit[:12]}.tar.gz",
+            f"DAE_CORE_SUBMODULES:={paths}",
+        ]
+    if patch_file:
+        parts += [
+            "# The daed backend parses the dae config with the core above and rejects unknown",
+            "# keys, so response_ttl has to exist here too, not only in the standalone daemon.",
+            f"DAE_CORE_PATCH:={patch_file}",
+        ]
+    if commit:
+        parts += [
+            "define DaeCore/Install",
+            "\t@set -e; \\",
+            "\trm -rf \"$(PKG_BUILD_DIR)/.dae-core-submodules\"; \\",
+            f"\t{stash} \\",
+            "\trm -rf \"$(PKG_BUILD_DIR)/dae-core\"; \\",
+            "\tmkdir -p \"$(PKG_BUILD_DIR)/dae-core\"; \\",
+            "\t$(TAR) --strip-components=1 -C \"$(PKG_BUILD_DIR)/dae-core\" -xzf \"$(DL_DIR)/$(DAE_CORE_SOURCE)\"; \\",
+            f"\t{restore} \\",
+            f"\t{verify} \\",
+            "\trm -rf \"$(PKG_BUILD_DIR)/.dae-core-submodules\"",
+            "endef",
+        ]
+    if patch_file:
+        parts += [
+            "define DaeCore/ApplyPatch",
+            f"\tpatch -p1 -s -d \"$(PKG_BUILD_DIR)/dae-core\" -i \"$(CURDIR)/{PATCH_DIR}/$(DAE_CORE_PATCH)\"",
+            "endef",
+        ]
+    parts.append(MARK_END)
+    block = "\n".join(parts) + "\n"
     check_recipe_is_expansion_safe(block)
     return block
 
@@ -394,10 +440,12 @@ def check_recipe_is_expansion_safe(block: str) -> None:
         )
 
 
-def apply_pin(text: str, commit: str, submodules: list[str]) -> str:
+def apply_adjustments(
+    text: str, commit: str | None, submodules: list[str], patch_file: str | None
+) -> str:
     anchor = re.search(r"^PKG_HASH:=.*$", text, re.MULTILINE)
     if not anchor:
-        raise PinError("the daed Makefile has no PKG_HASH line to anchor the dae-core pin on")
+        raise PinError("the daed Makefile has no PKG_HASH line to anchor the dae-core block on")
     if text[anchor.end() : anchor.end() + 1] != "\n":
         raise PinError("the daed Makefile's PKG_HASH line is not terminated by a newline")
     # Consume the anchor line's own newline and re-add it, so stripping the block
@@ -405,7 +453,7 @@ def apply_pin(text: str, commit: str, submodules: list[str]) -> str:
     text = (
         text[: anchor.end()]
         + "\n"
-        + pin_block(commit, submodules)
+        + adjustment_block(commit, submodules, patch_file)
         + "\n"
         + text[anchor.end() + 1 :]
     )
@@ -417,9 +465,31 @@ def apply_pin(text: str, commit: str, submodules: list[str]) -> str:
     )
     if not tar_line:
         raise PinError("the daed Makefile no longer extracts PKG_SOURCE the way this pin expects")
+    calls = (INSTALL_CALL if commit else "") + (PATCH_CALL if patch_file else "")
     end = tar_line.end() + 1
-    text = text[:end] + INSTALL_CALL + text[end:]
-    return rewrite_goflags(text, add=True)
+    text = text[:end] + calls + text[end:]
+    if commit:
+        text = rewrite_goflags(text, add=True)
+    return text
+
+
+def core_understands_response_ttl(root: Path) -> bool:
+    """Whether the tree already knows the response_ttl option."""
+    config_go = root / "config" / "config.go"
+    if not config_go.is_file():
+        return False
+    return "ResponseTtl" in config_go.read_text(encoding="utf-8", errors="replace")
+
+
+def core_patch_applies(root: Path, patch: Path) -> bool:
+    if not patch.is_file():
+        raise PinError(f"{patch} is missing from the repository; the build cannot apply it")
+    result = subprocess.run(
+        ["patch", "-p1", "--dry-run", "--forward", "-s", "-d", str(root), "-i", str(patch)],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    return result.returncode == 0
 
 
 def daed_source_archive(tree: Path, dl_dir: Path) -> Path:
@@ -477,10 +547,10 @@ def main() -> int:
         missing = probe_tree(shipped)
         if not missing:
             log(f"   daed-core: {archive.name} already satisfies every wing/ probe; leaving it alone")
-            if stripped != original:
-                makefile.write_text(stripped, encoding="utf-8")
-                log("   daed-core: removed the stale pin block from the daed Makefile")
-            records.append(
+            core_tree = shipped
+            commit = None
+            origin = ""
+            base_record = (
                 f"daed dae-core: as shipped in {archive.name} (all {len(PROBES)} probes satisfied)"
             )
         else:
@@ -503,30 +573,30 @@ def main() -> int:
                     )
                 candidates = [(fallback, "the previous run")]
 
-            chosen: tuple[str, str] | None = None
-            for commit, origin in candidates:
-                log(f"   daed-core: trying {commit[:12]} ({origin})")
-                candidate_archive = dl_dir / f"dae-core-{commit[:12]}.tar.gz"
+            chosen: tuple[str, str, Path] | None = None
+            for candidate_commit, candidate_origin in candidates:
+                log(f"   daed-core: trying {candidate_commit[:12]} ({candidate_origin})")
+                candidate_archive = dl_dir / f"dae-core-{candidate_commit[:12]}.tar.gz"
                 if not candidate_archive.is_file():
                     log(f"   daed-core: fetching {candidate_archive.name}")
-                    download(ARCHIVE_URL.format(commit=commit), candidate_archive)
-                candidate = workdir / f"pinned-{commit[:12]}"
+                    download(ARCHIVE_URL.format(commit=candidate_commit), candidate_archive)
+                candidate = workdir / f"pinned-{candidate_commit[:12]}"
                 if candidate.exists():
                     shutil.rmtree(candidate)
                 candidate.mkdir()
                 if extract_strip_one(candidate_archive, candidate) == 0 or not (
                     candidate / "control"
                 ).is_dir():
-                    warn(f"dae-core {commit[:12]} does not look like a dae source tree; skipping")
+                    warn(f"dae-core {candidate_commit[:12]} does not look like a dae source tree; skipping")
                     continue
                 still_missing = probe_tree(candidate)
                 if still_missing:
                     warn(
-                        f"dae-core {commit[:12]} from {origin} still misses "
+                        f"dae-core {candidate_commit[:12]} from {candidate_origin} still misses "
                         f"{', '.join(still_missing)}; trying the next candidate"
                     )
                     continue
-                chosen = (commit, origin)
+                chosen = (candidate_commit, candidate_origin, candidate)
                 log(
                     f"   daed-core: {candidate_archive.name} "
                     f"(sha256 {sha256_file(candidate_archive)[:16]}...) satisfies every probe"
@@ -539,14 +609,40 @@ def main() -> int:
                     "again -- update PROBES in .github/scripts/pin-daed-core.py"
                 )
 
-            commit, origin = chosen
-            makefile.write_text(apply_pin(stripped, commit, submodules), encoding="utf-8")
-            log(f"   daed-core: pinned {commit[:12]} from {origin}")
-            records.append(
+            commit, origin, core_tree = chosen
+            base_record = (
                 f"daed dae-core: {commit} from {origin} "
                 f"(replaces the tree in {archive.name}, all {len(PROBES)} probes satisfied, "
                 f"keeps the shipped {', '.join(submodules) if submodules else 'submodules'})"
             )
+
+        # daed parses the dae config with this core and rejects unknown keys, so
+        # the response_ttl option the LuCI form can emit has to exist here too.
+        patch_file: str | None = None
+        if core_understands_response_ttl(core_tree):
+            log("   daed-core: the core already knows response_ttl; no patch needed")
+            patch_record = "the core already knows response_ttl"
+        elif core_patch_applies(core_tree, REPO_PATCH):
+            patch_file = PATCH_NAME
+            log(f"   daed-core: {PATCH_NAME} applies; the daed backend will accept response_ttl")
+            patch_record = f"{PATCH_NAME} applies cleanly"
+        else:
+            raise PinError(
+                f"{PATCH_NAME} does not apply to the dae-core the daed package will build "
+                f"({'the pinned revision' if commit else 'the shipped tree'}); rebase "
+                f".github/patches/{PATCH_NAME} (its header has the recipe) before rebuilding"
+            )
+        records.append(f"{base_record}; {patch_record}")
+
+        if commit or patch_file:
+            makefile.write_text(
+                apply_adjustments(stripped, commit, submodules, patch_file), encoding="utf-8"
+            )
+            if commit:
+                log(f"   daed-core: pinned {commit[:12]} from {origin}")
+        elif stripped != original:
+            makefile.write_text(stripped, encoding="utf-8")
+            log("   daed-core: removed the stale dae-core block from the daed Makefile")
 
     if args.provenance:
         with args.provenance.open("a", encoding="utf-8") as handle:
