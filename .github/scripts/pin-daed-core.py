@@ -52,6 +52,8 @@ WING_CORE_PATH = "wing/dae-core"
 MARK_BEGIN = "# DAE_CORE_PIN_BEGIN (written by .github/scripts/pin-daed-core.py)"
 MARK_END = "# DAE_CORE_PIN_END"
 INSTALL_CALL = "\t$(DaeCore/Install)\n"
+GOFLAGS_RE = re.compile(r'^GO_PKG_BUILD_VARS\+= GOFLAGS="([^"]*)"$', re.MULTILINE)
+MODULE_MODE_FLAG = "-mod=mod"
 
 # What wing/ takes from dae-core.  Each entry is a directory plus a regular
 # expression that must match somewhere below it.  These are the symbols whose
@@ -259,7 +261,8 @@ def strip_pin(text: str) -> tuple[str, str]:
     """Remove a previously written block, returning it so its pin can be reused.
 
     The trailing blank line the block is written with is consumed too, so
-    re-running the script leaves the Makefile byte-identical.
+    re-running the script leaves the Makefile byte-identical.  The module-mode
+    flag the pin adds to GOFLAGS is dropped on the way out for the same reason.
     """
     pattern = re.compile(
         rf"^{re.escape(MARK_BEGIN)}$.*?^{re.escape(MARK_END)}$\n\n?",
@@ -269,7 +272,36 @@ def strip_pin(text: str) -> tuple[str, str]:
     previous = match.group(0) if match else ""
     text = pattern.sub("", text, count=1)
     text = text.replace(INSTALL_CALL, "")
-    return text, previous
+    return drop_module_mode(text), previous
+
+
+def rewrite_goflags(text: str, add: bool) -> str:
+    """Add or remove -mod=mod on the daed Makefile's GOFLAGS line.
+
+    wing/go.sum was written against the dae-core the tarball ships.  The pinned
+    revision imports modules that one never did (github.com/bits-and-blooms/
+    bloom/v3 and bitset, as of 85a1fc3c), and Go 1.16+ refuses to build a module
+    whose go.sum lacks an entry -- OpenWrt runs `go list`/`go install` in that
+    readonly mode.  -mod=mod lets those commands record the missing indirect
+    requirements and sums themselves instead of failing the build.
+    """
+    match = GOFLAGS_RE.search(text)
+    if not match:
+        raise PinError(
+            "the daed Makefile no longer sets GO_PKG_BUILD_VARS GOFLAGS the way the "
+            "dae-core pin expects"
+        )
+    flags = [flag for flag in match.group(1).split() if flag != MODULE_MODE_FLAG]
+    if add:
+        flags.append(MODULE_MODE_FLAG)
+    return GOFLAGS_RE.sub(f'GO_PKG_BUILD_VARS+= GOFLAGS="{" ".join(flags)}"', text, count=1)
+
+
+def drop_module_mode(text: str) -> str:
+    match = GOFLAGS_RE.search(text)
+    if not match or MODULE_MODE_FLAG not in match.group(1).split():
+        return text
+    return rewrite_goflags(text, add=False)
 
 
 def previous_commit(block: str) -> str | None:
@@ -320,6 +352,9 @@ def pin_block(commit: str, submodules: list[str]) -> str:
         f"# before the build and only writes this block after probing the tree it contains.\n"
         f"# The archive has no submodule contents, so the header trees the tarball ships are\n"
         f"# kept across the swap -- bpf2go compiles the eBPF sources against them.\n"
+        f"# wing/go.sum was written against the tree that ships in the tarball, so the pin\n"
+        f"# also puts the Go build in -mod=mod mode further down: the pinned revision pulls\n"
+        f"# in modules that one never imported, and readonly mode fails on the missing sums.\n"
         f"DAE_CORE_COMMIT:={commit}\n"
         f"DAE_CORE_SOURCE:=dae-core-{commit[:12]}.tar.gz\n"
         f"DAE_CORE_SUBMODULES:={paths}\n"
@@ -383,7 +418,8 @@ def apply_pin(text: str, commit: str, submodules: list[str]) -> str:
     if not tar_line:
         raise PinError("the daed Makefile no longer extracts PKG_SOURCE the way this pin expects")
     end = tar_line.end() + 1
-    return text[:end] + INSTALL_CALL + text[end:]
+    text = text[:end] + INSTALL_CALL + text[end:]
+    return rewrite_goflags(text, add=True)
 
 
 def daed_source_archive(tree: Path, dl_dir: Path) -> Path:
