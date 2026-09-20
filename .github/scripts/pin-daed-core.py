@@ -20,16 +20,17 @@ fetched ``dl/daed-src-*.tar.gz``, and before ``make download``:
 * otherwise resolve the commit dae-wing really pins -- through daed's ``wing``
   submodule when that is reachable, else dae-wing's default branch -- download
   that archive into ``dl/`` and point the daed Makefile's Build/Prepare at it;
-* apply ``.github/patches/dae-core-response-ttl.patch`` on top of whichever core
-  the daed package ends up building (the pinned one, or the shipped tree when it
-  already matches), because daed parses the dae config in-process and rejects
-  unknown keys -- without the patch a config rendered by luci-app-daede while
-  the daed backend is active would make daed refuse to start;
+* apply the dae-core patch series from ``.github/patches/`` on top of whichever
+  core the daed package ends up building (the pinned one, or the shipped tree
+  when it already matches), because daed parses the dae config in-process and
+  rejects unknown keys -- one unknown key (a ``disable_thp`` line copied from
+  dae's own example.dae, for instance) makes daed discard the whole stored
+  config and run an empty data plane;
 * reuse the previously written pin when the GitHub API is unreachable, so a
   transient API outage cannot break a build that already worked;
-* fail loudly when no candidate satisfies the probe, or when the response_ttl
-  patch no longer applies, instead of letting the compile stage discover it two
-  hours later.
+* fail loudly when no candidate satisfies the probe, or when a patch of the
+  dae-core series no longer applies to the tree it has to patch, instead of
+  letting the compile stage discover it two hours later.
 """
 
 from __future__ import annotations
@@ -66,8 +67,19 @@ LEGACY_MARKS = (
 INSTALL_CALL = "\t$(DaeCore/Install)\n"
 PATCH_CALL = "\t$(DaeCore/ApplyPatch)\n"
 PATCH_DIR = "dae-core-patches"
-PATCH_NAME = "dae-core-response-ttl.patch"
-REPO_PATCH = Path(__file__).resolve().parent.parent / "patches" / PATCH_NAME
+# The patches the daed package applies to whichever dae-core it builds, in this
+# order.  Order matters: the config-compat patch was generated against a tree
+# with the response_ttl patch already applied and both touch config/config.go.
+# Each entry carries the symbols that mean "this core already knows the option",
+# so a future core that caught up with dae main needs no patch at all.
+CORE_PATCHES = (
+    ("dae-core-response-ttl.patch", ("ResponseTtl",)),
+    (
+        "dae-core-config-compat.patch",
+        ("DisableTHP", "AutoSniffPunt", "BpfConnStateMapSize", "OptimisticStaleReplyTtl"),
+    ),
+)
+PATCHES_DIR = Path(__file__).resolve().parent.parent / "patches"
 GOFLAGS_RE = re.compile(r'^GO_PKG_BUILD_VARS\+= GOFLAGS="([^"]*)"$', re.MULTILINE)
 MODULE_MODE_FLAG = "-mod=mod"
 
@@ -330,7 +342,7 @@ def previous_commit(block: str) -> str | None:
 
 
 def adjustment_block(
-    commit: str | None, submodules: list[str], patch_file: str | None
+    commit: str | None, submodules: list[str], patch_files: list[str]
 ) -> str:
     # Two adjustments can be needed, in this order:
     #
@@ -340,8 +352,11 @@ def adjustment_block(
     #    bpf2go compiles control/kern/tproxy.c and trace/kern/trace.c against
     #    the headers submodule -- so the header trees the tarball ships are
     #    stashed and put back across the swap.
-    #  * apply the response_ttl patch, so the daed backend accepts a config that
-    #    luci-app-daede renders while the LuCI field is above zero.
+    #  * apply the dae-core patch series, so the daed backend accepts the config
+    #    keys current dae emits (response_ttl from luci-app-daede, and the
+    #    schema additions dae's own example.dae ships).  One unknown key makes
+    #    the parser reject the whole stored config, which leaves daed running an
+    #    empty data plane.
     #
     # The recipes deliberately use no shell variables.  OpenWrt pulls a package's
     # rules in through `$(eval $(call BuildPackage,...))`, and $(eval) expands its
@@ -389,11 +404,12 @@ def adjustment_block(
             f"DAE_CORE_SOURCE:=dae-core-{commit[:12]}.tar.gz",
             f"DAE_CORE_SUBMODULES:={paths}",
         ]
-    if patch_file:
+    if patch_files:
         parts += [
             "# The daed backend parses the dae config with the core above and rejects unknown",
-            "# keys, so response_ttl has to exist here too, not only in the standalone daemon.",
-            f"DAE_CORE_PATCH:={patch_file}",
+            "# keys, so the options current dae writes have to exist here too, not only in the",
+            "# standalone daemon.  Applied in the listed order.",
+            f"DAE_CORE_PATCHES:={' '.join(patch_files)}",
         ]
     if commit:
         parts += [
@@ -409,12 +425,12 @@ def adjustment_block(
             "\trm -rf \"$(PKG_BUILD_DIR)/.dae-core-submodules\"",
             "endef",
         ]
-    if patch_file:
-        parts += [
-            "define DaeCore/ApplyPatch",
-            f"\tpatch -p1 -s -d \"$(PKG_BUILD_DIR)/dae-core\" -i \"$(CURDIR)/{PATCH_DIR}/$(DAE_CORE_PATCH)\"",
-            "endef",
+    if patch_files:
+        apply_lines = [
+            f"\tpatch -p1 -s -d \"$(PKG_BUILD_DIR)/dae-core\" -i \"$(CURDIR)/{PATCH_DIR}/{name}\""
+            for name in patch_files
         ]
+        parts += ["define DaeCore/ApplyPatch", *apply_lines, "endef"]
     parts.append(MARK_END)
     block = "\n".join(parts) + "\n"
     check_recipe_is_expansion_safe(block)
@@ -441,7 +457,7 @@ def check_recipe_is_expansion_safe(block: str) -> None:
 
 
 def apply_adjustments(
-    text: str, commit: str | None, submodules: list[str], patch_file: str | None
+    text: str, commit: str | None, submodules: list[str], patch_files: list[str]
 ) -> str:
     anchor = re.search(r"^PKG_HASH:=.*$", text, re.MULTILINE)
     if not anchor:
@@ -453,7 +469,7 @@ def apply_adjustments(
     text = (
         text[: anchor.end()]
         + "\n"
-        + adjustment_block(commit, submodules, patch_file)
+        + adjustment_block(commit, submodules, patch_files)
         + "\n"
         + text[anchor.end() + 1 :]
     )
@@ -465,7 +481,7 @@ def apply_adjustments(
     )
     if not tar_line:
         raise PinError("the daed Makefile no longer extracts PKG_SOURCE the way this pin expects")
-    calls = (INSTALL_CALL if commit else "") + (PATCH_CALL if patch_file else "")
+    calls = (INSTALL_CALL if commit else "") + (PATCH_CALL if patch_files else "")
     end = tar_line.end() + 1
     text = text[:end] + calls + text[end:]
     if commit:
@@ -473,23 +489,57 @@ def apply_adjustments(
     return text
 
 
-def core_understands_response_ttl(root: Path) -> bool:
-    """Whether the tree already knows the response_ttl option."""
+def core_knows(root: Path, markers: tuple[str, ...]) -> bool:
+    """Whether the tree already carries the symbols a dae-core patch adds."""
     config_go = root / "config" / "config.go"
     if not config_go.is_file():
         return False
-    return "ResponseTtl" in config_go.read_text(encoding="utf-8", errors="replace")
+    text = config_go.read_text(encoding="utf-8", errors="replace")
+    return all(marker in text for marker in markers)
 
 
-def core_patch_applies(root: Path, patch: Path) -> bool:
-    if not patch.is_file():
-        raise PinError(f"{patch} is missing from the repository; the build cannot apply it")
-    result = subprocess.run(
-        ["patch", "-p1", "--dry-run", "--forward", "-s", "-d", str(root), "-i", str(patch)],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-    return result.returncode == 0
+def probe_patch_series(
+    core_tree: Path, workdir: Path, patches: tuple[tuple[str, tuple[str, ...]], ...]
+) -> tuple[list[str], list[str]]:
+    """Apply the dae-core patch series to a copy, in build order.
+
+    Returns the patch file names the build has to apply and one provenance line
+    per patch.  Patches whose symbols the core already carries are skipped, so a
+    future core that caught up with dae main needs no patch at all.  Applying
+    them cumulatively (rather than dry-running each against the pristine tree)
+    is what makes the order dependence between them testable here instead of two
+    hours into a build.
+    """
+    probe = workdir / "patch-probe"
+    needed: list[str] = []
+    records: list[str] = []
+    for name, markers in patches:
+        if core_knows(core_tree, markers):
+            records.append(f"{name} not needed (the core already knows it)")
+            continue
+        patch = PATCHES_DIR / name
+        if not patch.is_file():
+            raise PinError(f"{patch} is missing from the repository; the build cannot apply it")
+        if not needed:
+            if probe.exists():
+                shutil.rmtree(probe)
+            shutil.copytree(core_tree, probe)
+        result = subprocess.run(
+            ["patch", "-p1", "-s", "-d", str(probe), "-i", str(patch)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        if result.returncode != 0:
+            raise PinError(
+                f"{name} does not apply to the dae-core the daed package will build "
+                f"(on top of {', '.join(needed) if needed else 'the pristine tree'}); rebase "
+                f".github/patches/{name} (its header has the recipe) before rebuilding:\n"
+                f"{result.stdout.strip()}"
+            )
+        needed.append(name)
+        records.append(f"{name} applies cleanly")
+    return needed, records
 
 
 def daed_source_archive(tree: Path, dl_dir: Path) -> Path:
@@ -617,26 +667,17 @@ def main() -> int:
             )
 
         # daed parses the dae config with this core and rejects unknown keys, so
-        # the response_ttl option the LuCI form can emit has to exist here too.
-        patch_file: str | None = None
-        if core_understands_response_ttl(core_tree):
-            log("   daed-core: the core already knows response_ttl; no patch needed")
-            patch_record = "the core already knows response_ttl"
-        elif core_patch_applies(core_tree, REPO_PATCH):
-            patch_file = PATCH_NAME
-            log(f"   daed-core: {PATCH_NAME} applies; the daed backend will accept response_ttl")
-            patch_record = f"{PATCH_NAME} applies cleanly"
-        else:
-            raise PinError(
-                f"{PATCH_NAME} does not apply to the dae-core the daed package will build "
-                f"({'the pinned revision' if commit else 'the shipped tree'}); rebase "
-                f".github/patches/{PATCH_NAME} (its header has the recipe) before rebuilding"
-            )
-        records.append(f"{base_record}; {patch_record}")
+        # every option current dae writes has to exist here too -- otherwise one
+        # unknown key makes daed drop the whole stored config and run an empty
+        # data plane (see .github/patches/dae-core-config-compat.patch).
+        patch_files, patch_records = probe_patch_series(core_tree, workdir, CORE_PATCHES)
+        for record in patch_records:
+            log(f"   daed-core: {record}")
+        records.append(f"{base_record}; {'; '.join(patch_records)}")
 
-        if commit or patch_file:
+        if commit or patch_files:
             makefile.write_text(
-                apply_adjustments(stripped, commit, submodules, patch_file), encoding="utf-8"
+                apply_adjustments(stripped, commit, submodules, patch_files), encoding="utf-8"
             )
             if commit:
                 log(f"   daed-core: pinned {commit[:12]} from {origin}")

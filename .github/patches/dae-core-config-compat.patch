@@ -1,0 +1,293 @@
+# Current dae config keys for the dae core that is embedded in daed
+# (wing/dae-core).
+#
+# daed runs the dae data plane in-process and parses its stored global / dns /
+# routing sections with the config package of the core it bundles here. That
+# parser rejects unknown keys ("unexpected key: %v"), and the revision wing/
+# pins (daeuniverse/daed wing@dc503088 -> dae-core@85a1fc3c, April 2026)
+# predates four keys that dae's current schema -- and dae's own example.dae --
+# carries:
+#
+#   global:  disable_thp, auto_sniff_punt, bpf_conn_state_map_size
+#   dns:     optimistic_stale_reply_ttl
+#
+# One unknown key aborts the parse of the whole config, and daed treats a failed
+# restore as "nothing was running": restoreRunningState() writes running=false
+# and the data plane stays empty. That is what happened on 2026-09-20 -- the
+# stored global section carried disable_thp:"true" (copied from dae's own
+# /etc/dae/example.dae) and daed came up with "Routing match set len: 1/1024"
+# and "Health check will only verify 1 outbounds ... [direct]", i.e. every
+# routing rule, group and dns policy silently inert, while the dashboard still
+# listed the config as selected. The log line was:
+#
+#   Failed to restore last running state: failed to parse "global":
+#   unexpected key: disable_thp
+#
+# The fields below copy dae's current definitions (name, tag, default) so the
+# same config text parses here. This revision has no implementation behind
+# them, and both the struct comments and the desc entries the daed dashboard
+# renders say so:
+#
+#   * disable_thp: upstream applies it in cmd/ (prctl PR_SET_THP_DISABLE), which
+#     wing/ does not run -- the daed backend never applied it, not even on the
+#     older build whose core happened to know the key.
+#   * auto_sniff_punt: routing.InferSniffPunt arrived upstream after this
+#     revision.
+#   * bpf_conn_state_map_size: this revision sizes tcp_conn_state_map and
+#     udp_conn_state_map at compile time (MAX_DST_MAPPING_NUM in
+#     control/kern/tproxy.c).
+#   * optimistic_stale_reply_ttl: this revision serves stale answers with the
+#     TTL packed in the cached response.
+#
+# Accepting the keys is what keeps a config written for current dae from
+# killing the daemon. The invariant behind it -- every key the dae package's
+# example.dae ships must be accepted by the core daed builds -- is asserted by
+# .github/scripts/check-dae-config-compat.py, so the next key dae adds fails
+# the build in minutes instead of silently emptying the router's data plane.
+#
+# This patch is the second half of the dae-core series: it applies on top of
+# dae-core-response-ttl.patch. It was generated against a tree that already had
+# that patch applied, and its config.go hunks share context with it, so
+# pin-daed-core.py applies them in that exact order.
+#
+# Regenerate against a new core revision with:
+#   tar --strip-components=1 -C a -xzf dae-core-<sha12>.tar.gz
+#   cp -a a b && patch -p1 -s -d b -i <path to dae-core-response-ttl.patch>
+#   # edit b/ as described above, then:
+#   diff -ruN a b > dae-core-config-compat.patch
+#
+# Verify with (dae_stub_ebpf avoids needing clang and the generated eBPF
+# objects):
+#   cd b && go build -tags dae_stub_ebpf ./config/... ./control/... ./cmd/...
+#   go test  -tags dae_stub_ebpf -count=1 ./config/ ./control/ ./cmd/
+# Verified that way against 85a1fc3c06e3765d143c868ba97ecd0be2aab4ea: build
+# clean, config/control/cmd suites green. The two new config tests fail on the
+# unpatched core with exactly the error the router logged
+# ("failed to parse \"global\": unexpected key: disable_thp"), which is the
+# regression they pin. TestLazyConnPool_ConcurrentCloseAndGet in ./control/ is
+# timing-sensitive: it flaked once under load and passes on re-runs on both the
+# patched and the unpatched tree.
+diff -ruN a/cmd/run_shutdown_test.go b/cmd/run_shutdown_test.go
+--- a/cmd/run_shutdown_test.go	2026-09-20 14:16:48.239819853 +0800
++++ b/cmd/run_shutdown_test.go	2026-09-20 14:18:58.220713867 +0800
+@@ -517,6 +517,10 @@
+ 		"OptimisticCacheTtl": {},
+ 		"MaxCacheSize":       {},
+ 		"ResponseTtl":        {},
++		// Accepted for config compatibility with dae's current schema; this
++		// revision serves stale answers with their previously packed TTL, so
++		// the field carries no reload decision.
++		"OptimisticStaleReplyTtl": {},
+ 	}
+ 
+ 	dnsType := reflect.TypeOf(config.Dns{})
+diff -ruN a/config/config_compat_keys_test.go b/config/config_compat_keys_test.go
+--- a/config/config_compat_keys_test.go	1970-01-01 08:00:00.000000000 +0800
++++ b/config/config_compat_keys_test.go	2026-09-20 14:18:28.778509807 +0800
+@@ -0,0 +1,104 @@
++/*
++ * SPDX-License-Identifier: AGPL-3.0-only
++ * Copyright (c) 2022-2026, daeuniverse Organization <dae@v2raya.org>
++ */
++
++package config
++
++import (
++	"testing"
++
++	"github.com/daeuniverse/dae/pkg/config_parser"
++	"github.com/stretchr/testify/require"
++)
++
++// TestCurrentDaeSchemaKeysAreAccepted pins the failure this patch exists for.
++//
++// daed parses its stored global/dns/routing sections with this package, and
++// config/parser.go rejects unknown keys ("unexpected key: %v"). The revision
++// wing/ pins (85a1fc3c, April 2026) predates four keys that dae's current
++// schema -- and dae's own example.dae -- ships, so a stored config carrying any
++// of them failed to restore as a whole: on 2026-09-20 a single
++// disable_thp:"true" line made daed drop the running state it had on disk and
++// come up with an empty data plane (routing, groups and dns policy silently
++// reduced to "direct only").
++//
++// The quoting below matches what daed stores for a section saved by its own
++// dashboard, so the fixture is the shape that actually hit the parser.
++func TestCurrentDaeSchemaKeysAreAccepted(t *testing.T) {
++	sections, err := config_parser.Parse(`
++global {
++  tproxy_port:"12345"
++  log_level:"warn"
++  lan_interface:"br-lan"
++  wan_interface:"pppoe-wan"
++  dial_mode:"domain"
++  disable_waiting_network:"false"
++  disable_thp:"true"
++  sniffing_timeout:"200ms"
++  auto_sniff_punt:"true"
++  fallback_resolver:"8.8.8.8:53"
++  bpf_conn_state_map_size:"262144"
++}
++
++dns {
++  optimistic_stale_reply_ttl:"30"
++  upstream {
++    google: "8.8.8.8:53"
++  }
++  routing {
++    request {
++      fallback: google
++    }
++  }
++}
++
++routing {
++  fallback: direct
++}
++`)
++	require.NoError(t, err)
++
++	conf, err := New(sections)
++	require.NoError(t, err)
++	require.True(t, conf.Global.DisableTHP)
++	require.True(t, conf.Global.AutoSniffPunt)
++	require.Equal(t, uint32(262144), conf.Global.BpfConnStateMapSize)
++	require.Equal(t, 30, conf.Dns.OptimisticStaleReplyTtl)
++}
++
++// TestCurrentDaeSchemaKeysKeepTheirDefaults guards the other half of the
++// contract: a config that omits the keys must still parse and must expose the
++// defaults dae's schema documents, so the daed dashboard renders sane values
++// for them.
++func TestCurrentDaeSchemaKeysKeepTheirDefaults(t *testing.T) {
++	sections, err := config_parser.Parse(`
++global {
++  tproxy_port:"12345"
++  dial_mode:"domain"
++}
++
++dns {
++  upstream {
++    google: "8.8.8.8:53"
++  }
++  routing {
++    request {
++      fallback: google
++    }
++  }
++}
++
++routing {
++  fallback: direct
++}
++`)
++	require.NoError(t, err)
++
++	conf, err := New(sections)
++	require.NoError(t, err)
++	require.False(t, conf.Global.DisableTHP)
++	require.True(t, conf.Global.AutoSniffPunt)
++	require.Equal(t, uint32(262144), conf.Global.BpfConnStateMapSize)
++	require.Equal(t, 30, conf.Dns.OptimisticStaleReplyTtl)
++}
+diff -ruN a/config/config.go b/config/config.go
+--- a/config/config.go	2026-09-20 14:16:48.239864707 +0800
++++ b/config/config.go	2026-09-20 14:18:43.110609139 +0800
+@@ -34,24 +34,40 @@
+ 	AllowInsecure         bool          `mapstructure:"allow_insecure" default:"false"`
+ 	DialMode              string        `mapstructure:"dial_mode" default:"domain"`
+ 	DisableWaitingNetwork bool          `mapstructure:"disable_waiting_network" default:"false"`
++	// DisableTHP is accepted so a dae config written against dae's current
++	// schema parses (dae's example.dae ships the key). This revision has no
++	// THP handling and wing/ never ran cmd/'s configureTransparentHugePages,
++	// so the value is inert in the daed backend.
++	DisableTHP bool `mapstructure:"disable_thp" default:"false"`
+ 	// Deprecated: not used as of https://github.com/daeuniverse/dae/pull/912.
+ 	EnableLocalTcpFastRedirect bool `mapstructure:"enable_local_tcp_fast_redirect" default:"false"`
+ 	AutoConfigKernelParameter  bool `mapstructure:"auto_config_kernel_parameter" default:"false"`
+ 	// Deprecated: not used as of https://github.com/daeuniverse/dae/pull/458.
+ 	AutoConfigFirewallRule bool          `mapstructure:"auto_config_firewall_rule" default:"false"`
+ 	SniffingTimeout        time.Duration `mapstructure:"sniffing_timeout" default:"30ms"`
+-	TlsImplementation      string        `mapstructure:"tls_implementation" default:"tls"`
+-	UtlsImitate            string        `mapstructure:"utls_imitate" default:"chrome_auto"`
+-	TlsFragment            bool          `mapstructure:"tls_fragment" default:"false"`
+-	TlsFragmentLength      string        `mapstructure:"tls_fragment_length" default:"50-100"`
+-	TlsFragmentInterval    string        `mapstructure:"tls_fragment_interval" default:"10-20"`
+-	PprofPort              uint16        `mapstructure:"pprof_port" default:"0"`
+-	Mptcp                  bool          `mapstructure:"mptcp" default:"false"`
+-	BootstrapResolver      string        `mapstructure:"bootstrap_resolver"`
+-	FallbackResolver       string        `mapstructure:"fallback_resolver" default:"8.8.8.8:53"`
+-	BandwidthMaxTx         string        `mapstructure:"bandwidth_max_tx" default:"0"`
+-	BandwidthMaxRx         string        `mapstructure:"bandwidth_max_rx" default:"0"`
+-	UDPHopInterval         time.Duration `mapstructure:"udphop_interval" default:"30s"`
++	// AutoSniffPunt is accepted so a dae config written against dae's current
++	// schema parses (dae's example.dae ships the key). Sniff-punt rule
++	// inference (routing.InferSniffPunt) arrived upstream after this revision,
++	// so the value has no effect here.
++	AutoSniffPunt       bool          `mapstructure:"auto_sniff_punt" default:"true"`
++	TlsImplementation   string        `mapstructure:"tls_implementation" default:"tls"`
++	UtlsImitate         string        `mapstructure:"utls_imitate" default:"chrome_auto"`
++	TlsFragment         bool          `mapstructure:"tls_fragment" default:"false"`
++	TlsFragmentLength   string        `mapstructure:"tls_fragment_length" default:"50-100"`
++	TlsFragmentInterval string        `mapstructure:"tls_fragment_interval" default:"10-20"`
++	PprofPort           uint16        `mapstructure:"pprof_port" default:"0"`
++	Mptcp               bool          `mapstructure:"mptcp" default:"false"`
++	BootstrapResolver   string        `mapstructure:"bootstrap_resolver"`
++	FallbackResolver    string        `mapstructure:"fallback_resolver" default:"8.8.8.8:53"`
++	BandwidthMaxTx      string        `mapstructure:"bandwidth_max_tx" default:"0"`
++	BandwidthMaxRx      string        `mapstructure:"bandwidth_max_rx" default:"0"`
++	UDPHopInterval      time.Duration `mapstructure:"udphop_interval" default:"30s"`
++	// BpfConnStateMapSize is accepted so a dae config written against dae's
++	// current schema parses (dae's example.dae ships the key). This revision
++	// sizes tcp_conn_state_map/udp_conn_state_map at compile time
++	// (MAX_DST_MAPPING_NUM in control/kern/tproxy.c), so the value has no
++	// effect here.
++	BpfConnStateMapSize uint32 `mapstructure:"bpf_conn_state_map_size" default:"262144"`
+ }
+ 
+ type Utls struct {
+@@ -157,8 +173,12 @@
+ 	Bind               string          `mapstructure:"bind"`
+ 	OptimisticCache    bool            `mapstructure:"optimistic_cache" default:"true"`
+ 	OptimisticCacheTtl int             `mapstructure:"optimistic_cache_ttl" default:"60"`
+-	MaxCacheSize       int             `mapstructure:"max_cache_size" default:"0"`
+-	ResponseTtl        int             `mapstructure:"response_ttl" default:"0"`
++	// OptimisticStaleReplyTtl is accepted so a dae config written against dae's
++	// current schema parses. This revision serves stale answers with their
++	// previously packed TTL, so the value has no effect here.
++	OptimisticStaleReplyTtl int `mapstructure:"optimistic_stale_reply_ttl" default:"30"`
++	MaxCacheSize            int `mapstructure:"max_cache_size" default:"0"`
++	ResponseTtl             int `mapstructure:"response_ttl" default:"0"`
+ }
+ 
+ type Routing struct {
+diff -ruN a/config/desc.go b/config/desc.go
+--- a/config/desc.go	2026-09-20 14:16:48.239892976 +0800
++++ b/config/desc.go	2026-09-20 14:18:43.110609139 +0800
+@@ -53,19 +53,23 @@
+ 3. "domain+". Based on domain mode but do not check the reality of sniffed domain. It is useful for users whose DNS requests do not go through dae but want faster proxy response time. Notice that, if DNS requests do not go through dae, dae cannot split traffic by domain.
+ 4. "domain++". Based on domain+ mode but force to re-route traffic using sniffed domain to partially recover domain based traffic split ability. It doesn't work for direct traffic and consumes more CPU resources.`,
+ 	"disable_waiting_network":      "Disable waiting for network before pulling subscriptions.",
++	"disable_thp":                  "Accepted so a config written against dae's current schema parses. This build's daed backend does not apply it; transparent huge pages stay at the kernel default.",
++	"auto_sniff_punt":              "Accepted so a config written against dae's current schema parses. This build has no sniff-punt rule inference, so the value has no effect.",
+ 	"auto_config_kernel_parameter": "Automatically configure Linux kernel parameters like ip_forward and send_redirects. Check out https://github.com/daeuniverse/dae/blob/main/docs/en/user-guide/kernel-parameters.md to see what will dae do.",
+ 	"sniffing_timeout":             "Timeout to waiting for first data sending for sniffing. It is always 0 if dial_mode is ip. Default 30ms is suitable for most networks. Increase to 100-300ms for high-latency networks.",
+ 	"tls_implementation":           "TLS implementation. \"tls\" is to use Go's crypto/tls. \"utls\" is to use uTLS, which can imitate browser's Client Hello.",
+ 	"utls_imitate":                 "The Client Hello ID for uTLS to imitate. This takes effect only if tls_implementation is utls. See more: https://github.com/daeuniverse/dae/blob/331fa23c16/component/outbound/transport/tls/utls.go#L17",
+ 	"mptcp":                        "Enable Multipath TCP.  If is true, dae will try to use MPTCP to connect all nodes, but it will only take effects when the node supports MPTCP. It can use for load balance and failover to multiple interfaces and IPs.",
+ 	"bootstrap_resolver":           "Explicit DNS resolver used only for bootstrap lookups that must happen before dae DNS routing is available, such as resolving named DNS upstream hosts and dial_mode real-domain probes. When unset, dae falls back to 119.29.29.29:53 and 223.5.5.5:53 in order. Setting bootstrap_resolver disables those defaults and uses only the configured resolver.",
++	"bpf_conn_state_map_size":      "Accepted so a config written against dae's current schema parses. This build sizes tcp_conn_state_map/udp_conn_state_map at compile time, so the value has no effect.",
+ }
+ 
+ var DnsDesc = Desc{
+-	"ipversion_prefer": "For example, if ipversion_prefer is 4 and the domain name has both type A and type AAAA records, the dae will only respond to type A queries and response empty answer to type AAAA queries.",
+-	"fixed_domain_ttl": "Give a fixed ttl for domains. Zero means that dae will request to upstream every time and not cache DNS results for these domains.",
+-	"response_ttl":     "Override the TTL returned to downstream DNS clients. Zero keeps dae's default behavior.",
+-	"upstream":         "Value can be scheme://host:port, where the scheme can be tcp/udp/tcp+udp.\nIf host is a domain and has both IPv4 and IPv6 record, dae will automatically choose IPv4 or IPv6 to use according to group policy (such as min latency policy).\nPlease make sure DNS traffic will go through and be forwarded by dae, which is REQUIRED for domain routing.\nIf dial_mode is \"ip\", the upstream DNS answer SHOULD NOT be polluted, so domestic public DNS is not recommended.",
++	"ipversion_prefer":           "For example, if ipversion_prefer is 4 and the domain name has both type A and type AAAA records, the dae will only respond to type A queries and response empty answer to type AAAA queries.",
++	"fixed_domain_ttl":           "Give a fixed ttl for domains. Zero means that dae will request to upstream every time and not cache DNS results for these domains.",
++	"response_ttl":               "Override the TTL returned to downstream DNS clients. Zero keeps dae's default behavior.",
++	"optimistic_stale_reply_ttl": "Accepted so a config written against dae's current schema parses. This build serves stale answers with their previously packed TTL, so the value has no effect.",
++	"upstream":                   "Value can be scheme://host:port, where the scheme can be tcp/udp/tcp+udp.\nIf host is a domain and has both IPv4 and IPv6 record, dae will automatically choose IPv4 or IPv6 to use according to group policy (such as min latency policy).\nPlease make sure DNS traffic will go through and be forwarded by dae, which is REQUIRED for domain routing.\nIf dial_mode is \"ip\", the upstream DNS answer SHOULD NOT be polluted, so domestic public DNS is not recommended.",
+ 	"request": `DNS request routing for ordinary client traffic uses qname and qtype.
+ Built-in outbounds for ordinary DNS requests: asis, reject.
+ Additional internal dae selectors are available in the same request block:
