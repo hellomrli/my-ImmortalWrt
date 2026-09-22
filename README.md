@@ -25,7 +25,7 @@ DNS 分流**，并保留常用管理、QoS、UPnP、SFTP 和虚拟化组件。�
 <!-- BUILD_TABLE_START -->
 | 构建目标 | 构建状态 | 最新版本 | 发布时间 | Release | 推荐下载 |
 |----------|----------|----------|----------|---------|----------|
-| ImmortalWrt `master` | 已发布 | `immortalwrt-master-2026.09.20-2111` | 2026-09-20 21:11 CST | [下载](https://github.com/hellomrli/my-ImmortalWrt/releases/tag/immortalwrt-master-2026.09.20-2111) | `squashfs-combined-efi.img.gz` |
+| ImmortalWrt `master` | 已发布 | `immortalwrt-master-2026.09.22-1232` | 2026-09-22 12:32 CST | [下载](https://github.com/hellomrli/my-ImmortalWrt/releases/tag/immortalwrt-master-2026.09.22-1232) | `squashfs-combined-efi.img.gz` |
 | ImmortalWrt `openwrt-25.12` | 已发布 | `immortalwrt-openwrt-25.12-2026.09.22-1219` | 2026-09-22 12:19 CST | [下载](https://github.com/hellomrli/my-ImmortalWrt/releases/tag/immortalwrt-openwrt-25.12-2026.09.22-1219) | `squashfs-combined-efi.img.gz` |
 
 > 此表由 GitHub Actions 自动更新；新 Release 发布后会同步最新版本和链接。
