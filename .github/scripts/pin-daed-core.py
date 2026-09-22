@@ -1,36 +1,41 @@
 #!/usr/bin/env python3
-"""Keep daed's bundled dae-core consistent with the revision dae-wing pins.
+"""Keep daed's bundled dae-core consistent with the wing/ code next to it.
 
 ``kenzok8/openwrt-daede`` assembles ``daed-src-<date>-<id>.tar.gz`` from the
-daed repository, whose ``wing/`` submodule (dae-wing) in turn pins
-``wing/dae-core`` to one exact dae commit.  The assembly copies dae's *default
-branch* into ``wing/dae-core`` instead of that pinned commit, so as soon as dae
-main moves on, ``wing/`` no longer compiles against the tree shipped next to it.
-That is what happened on 2026-09-19: dae main had dropped
-``netutils.FallbackDns`` and the ``dialer.NewFromLink`` wrapper, which ``wing/``
-still uses, and the daed package died with six "undefined" errors two hours into
-the build (the dae patch failure in front of it had been hiding this one).
+daed repository, whose ``wing/`` submodule (dae-wing) pins ``wing/dae-core`` to
+one exact dae commit while the assembly copies dae's *default branch* there.  As
+soon as dae main moves on, wing/ no longer compiles against the tree shipped
+next to it: on 2026-09-19 dae main had dropped ``netutils.FallbackDns`` and the
+``dialer.NewFromLink`` wrapper, which wing/ still used, and the daed package
+died with six "undefined" errors two hours into the build.
 
-Run this after the packages are materialized and after pin-daede-source.py has
-fetched ``dl/daed-src-*.tar.gz``, and before ``make download``:
+Upstream has since solved that itself: kenzok8/openwrt-daede ships
+``0012-adapt-wing-to-new-core.patch``, which rewrites wing/ against the new
+core, and dae grew the config keys and the TCP traffic metering that used to
+need patches of ours.  So this script's job is now mostly to know when *not* to
+intervene.  Run it after the packages are materialized and after
+pin-daede-source.py has fetched ``dl/daed-src-*.tar.gz``, before ``make
+download``:
 
-* probe the dae-core the tarball actually carries and leave it untouched when it
-  already satisfies every symbol ``wing/`` uses, so an upstream assembly fix is
-  picked up for free and nothing is rewritten needlessly;
-* otherwise resolve the commit dae-wing really pins -- through daed's ``wing``
-  submodule when that is reachable, else dae-wing's default branch -- download
-  that archive into ``dl/`` and point the daed Makefile's Build/Prepare at it;
-* apply the dae-core patch series from ``.github/patches/`` on top of whichever
-  core the daed package ends up building (the pinned one, or the shipped tree
-  when it already matches), because daed parses the dae config in-process and
-  rejects unknown keys -- one unknown key (a ``disable_thp`` line copied from
-  dae's own example.dae, for instance) makes daed discard the whole stored
-  config and run an empty data plane;
+* leave the shipped core alone when it still provides every symbol wing/'s
+  unpatched code uses -- that is the revision wing/ was written for;
+* leave it alone as well when it is newer than that code but the shipped daed
+  patch series carries an adapter patch touching ``dae-core/``; pinning back to
+  the April core is what made upstream's adapter apply with fuzz and redeclare
+  ``Marshaller.Bytes`` on 2026-09-21;
+* only when neither holds, resolve the commit dae-wing really pins -- through
+  daed's ``wing`` submodule when that is reachable, else dae-wing's default
+  branch -- download that archive into ``dl/`` and point the daed Makefile's
+  Build/Prepare at it;
+* add the one feature upstream does not have: response_ttl, which
+  luci-app-daede's form and generated config can write and daed's parser would
+  reject as an unknown key.  Two candidate patches cover the April core and dae
+  main; the first that applies cleanly is used, and when none does the build
+  fails here, in the ten-minute configuration step;
 * reuse the previously written pin when the GitHub API is unreachable, so a
   transient API outage cannot break a build that already worked;
-* fail loudly when no candidate satisfies the probe, or when a patch of the
-  dae-core series no longer applies to the tree it has to patch, instead of
-  letting the compile stage discover it two hours later.
+* fail loudly rather than letting the compile stage discover a problem two hours
+  later.
 """
 
 from __future__ import annotations
@@ -67,51 +72,37 @@ LEGACY_MARKS = (
 INSTALL_CALL = "\t$(DaeCore/Install)\n"
 PATCH_CALL = "\t$(DaeCore/ApplyPatch)\n"
 PATCH_DIR = "dae-core-patches"
-# The patches the daed package applies to whichever dae-core it builds, in this
-# order.  Order matters: the config-compat patch was generated against a tree
-# with the response_ttl patch already applied and both touch config/config.go,
-# and the traffic-stats patch was generated on top of both.
+# The one feature the daed package still has to add to whichever dae-core it
+# builds: response_ttl, which luci-app-daede's form and generated config can
+# write and the daed backend's parser would reject as an unknown key.  Upstream
+# does not provide it (dae forwards the upstream TTL instead), so it stays our
+# patch -- one candidate per core generation, tried in order.
 #
-# Each entry carries the probe that means "this core does not need the patch":
-# a file plus the markers that must all appear in it.  Several alternatives are
-# tried, so a core that solved the same problem another way (dae main meters the
-# TCP relay straight into the package-level recorders) is recognised too.
+# Everything else the daed package needed in 2026-09-20 is now upstream's: dae
+# grew disable_thp / auto_sniff_punt / bpf_conn_state_map_size /
+# optimistic_stale_reply_ttl itself, dae main meters TCP relay traffic into the
+# package-level recorders, and kenzok8/openwrt-daede ships
+# 0012-adapt-wing-to-new-core.patch so wing/ builds against the new core.  Those
+# patches were dropped rather than carried.
+#
+# Each entry is (label, "the core already does this" probes, candidate files).
 CORE_PATCHES = (
     (
-        "dae-core-response-ttl.patch",
+        "response_ttl",
         (("config/config.go", ("ResponseTtl",)),),
-    ),
-    (
-        "dae-core-config-compat.patch",
-        (
-            (
-                "config/config.go",
-                ("DisableTHP", "AutoSniffPunt", "BpfConnStateMapSize", "OptimisticStaleReplyTtl"),
-            ),
-        ),
-    ),
-    (
-        "dae-core-traffic-stats.patch",
-        (
-            # This revision solved it the way the patch does.
-            ("control/runtime_stats.go", ("RecordUploadTraffic(n)",)),
-            # dae main meters the TCP relay straight into the package-level
-            # recorders.  The marker has to name the data path: the pristine
-            # revision also mentions both recorders, but only inside the unused
-            # RelayTCPContext wrapper, which is exactly the bug.
-            ("control/tcp.go", ("ingress, egress, RecordDownloadTraffic, RecordUploadTraffic",)),
-        ),
+        # The first targets the April revision dae-wing pins; the second is the
+        # rebase of the same feature for dae main and its descendants.
+        ("dae-core-response-ttl.patch", "010-dns-response-ttl.patch"),
     ),
 )
 PATCHES_DIR = Path(__file__).resolve().parent.parent / "patches"
 GOFLAGS_RE = re.compile(r'^GO_PKG_BUILD_VARS\+= GOFLAGS="([^"]*)"$', re.MULTILINE)
 MODULE_MODE_FLAG = "-mod=mod"
 
-# What wing/ takes from dae-core.  Each entry is a directory plus a regular
-# expression that must match somewhere below it.  These are the symbols whose
-# removal from dae main broke the 2026-09-19 build; together they stand in for
-# "the revision wing was written against", which is what the pin has to restore.
-PROBES = (
+# Symbols wing/ used against the dae-core that shipped with daed-src until
+# 2026-09-20.  When every one of them is present the shipped core is the
+# revision wing's unpatched code was written for, so nothing has to be pinned.
+WING_LEGACY_API = (
     ("common/netutils", r"FallbackDns"),
     ("component/outbound/dialer", r"func NewFromLink\("),
     ("config", r"func FunctionOrStringToFunction"),
@@ -204,9 +195,9 @@ def submodule_paths(root: Path) -> list[str]:
 
 
 def probe_tree(root: Path) -> list[str]:
-    """Return the probes the tree does not satisfy."""
+    """Return the legacy-API markers the tree does not provide."""
     missing = []
-    for directory, pattern in PROBES:
+    for directory, pattern in WING_LEGACY_API:
         base = root / directory
         matched = False
         if base.is_dir():
@@ -222,6 +213,29 @@ def probe_tree(root: Path) -> list[str]:
         if not matched:
             missing.append(f"{directory}: /{pattern}/")
     return missing
+
+
+def series_adapts_wing(tree: Path) -> str | None:
+    """The daed patch that moves wing/ onto the core the tarball ships, if any.
+
+    kenzok8/openwrt-daede answered the same problem this script used to solve
+    locally: its 0012-adapt-wing-to-new-core.patch rewrites wing/ against dae
+    main.  When the shipped series carries such a patch the pin must not
+    intervene -- pinning back to the April core is what made that patch apply
+    with fuzz and redeclare Marshaller.Bytes.  A patch that touches dae-core/ is
+    the marker, because adapting wing is the only reason to touch it.
+    """
+    patch_dir = tree / "package" / "dae" / "daed" / "patches"
+    if not patch_dir.is_dir():
+        return None
+    for patch in sorted(patch_dir.glob("*.patch")):
+        try:
+            text = patch.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if re.search(r"^[-+]{3} [ab]/dae-core/", text, re.MULTILINE):
+            return patch.name
+    return None
 
 
 def _extract(tar: tarfile.TarFile, member: tarfile.TarInfo, dest: Path) -> None:
@@ -532,46 +546,59 @@ def core_knows(root: Path, probe: tuple[tuple[str, tuple[str, ...]], ...]) -> bo
 def probe_patch_series(
     core_tree: Path,
     workdir: Path,
-    patches: tuple[tuple[str, tuple[tuple[str, tuple[str, ...]], ...]], ...],
+    patches: tuple[tuple[str, tuple[tuple[str, tuple[str, ...]], ...], tuple[str, ...]], ...],
 ) -> tuple[list[str], list[str]]:
     """Apply the dae-core patch series to a copy, in build order.
 
     Returns the patch file names the build has to apply and one provenance line
-    per patch.  Patches whose problem the core already solves are skipped, so a
-    future core that caught up with dae main needs no patch at all.  Applying
-    them cumulatively (rather than dry-running each against the pristine tree)
-    is what makes the order dependence between them testable here instead of two
-    hours into a build.
+    per patch.  A feature the core already provides is skipped, and a candidate
+    that no longer applies gives way to the next one, so the same feature can
+    ship one patch per core generation.  Applying them cumulatively (rather than
+    dry-running each against the pristine tree) is what makes order dependence
+    testable here instead of two hours into a build.
     """
     probe = workdir / "patch-probe"
+    if probe.exists():
+        shutil.rmtree(probe)
+    shutil.copytree(core_tree, probe)
+
     needed: list[str] = []
     records: list[str] = []
-    for name, alternatives in patches:
-        if core_knows(core_tree, alternatives):
-            records.append(f"{name} not needed (the core already knows it)")
+    for label, alternatives, candidates in patches:
+        if core_knows(probe, alternatives):
+            records.append(f"{label} not needed (the core already provides it)")
             continue
-        patch = PATCHES_DIR / name
-        if not patch.is_file():
-            raise PinError(f"{patch} is missing from the repository; the build cannot apply it")
-        if not needed:
-            if probe.exists():
-                shutil.rmtree(probe)
-            shutil.copytree(core_tree, probe)
-        result = subprocess.run(
-            ["patch", "-p1", "-s", "-d", str(probe), "-i", str(patch)],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-        )
-        if result.returncode != 0:
-            raise PinError(
-                f"{name} does not apply to the dae-core the daed package will build "
-                f"(on top of {', '.join(needed) if needed else 'the pristine tree'}); rebase "
-                f".github/patches/{name} (its header has the recipe) before rebuilding:\n"
-                f"{result.stdout.strip()}"
+        errors: list[str] = []
+        for candidate in candidates:
+            patch = PATCHES_DIR / candidate
+            if not patch.is_file():
+                errors.append(f"{candidate}: missing from .github/patches/")
+                continue
+            trial = workdir / f"patch-trial-{len(needed)}"
+            if trial.exists():
+                shutil.rmtree(trial)
+            shutil.copytree(probe, trial)
+            result = subprocess.run(
+                ["patch", "-p1", "-s", "-d", str(trial), "-i", str(patch)],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
             )
-        needed.append(name)
-        records.append(f"{name} applies cleanly")
+            if result.returncode != 0:
+                errors.append(f"{candidate}: {' '.join(result.stdout.split())[:160]}")
+                shutil.rmtree(trial)
+                continue
+            shutil.rmtree(probe)
+            trial.rename(probe)
+            needed.append(candidate)
+            records.append(f"{candidate} applies cleanly")
+            break
+        else:
+            raise PinError(
+                f"no {label} patch applies to the dae-core the daed package will build; rebase "
+                f".github/patches/{candidates[0]} on it (its header has the recipe):\n"
+                + "\n".join(f"  {error}" for error in errors)
+            )
     return needed, records
 
 
@@ -628,18 +655,36 @@ def main() -> int:
             )
 
         missing = probe_tree(shipped)
+        adapter = series_adapts_wing(tree)
         if not missing:
-            log(f"   daed-core: {archive.name} already satisfies every wing/ probe; leaving it alone")
+            log(f"   daed-core: {archive.name} is the revision wing/ was written for; leaving it alone")
             core_tree = shipped
             commit = None
             origin = ""
             base_record = (
-                f"daed dae-core: as shipped in {archive.name} (all {len(PROBES)} probes satisfied)"
+                f"daed dae-core: as shipped in {archive.name} "
+                f"(matches wing/'s unpatched code on all {len(WING_LEGACY_API)} markers)"
+            )
+        elif adapter:
+            # Upstream solved the same problem here: the shipped series moves
+            # wing/ onto the core next to it.  Pinning back to the April core
+            # would fight that patch, which is exactly how the 2026-09-21 build
+            # broke (applied with fuzz, redeclaring Marshaller.Bytes).
+            log(
+                f"   daed-core: {archive.name} is newer than wing/'s unpatched code, and "
+                f"{adapter} adapts wing/ to it; leaving it alone"
+            )
+            core_tree = shipped
+            commit = None
+            origin = ""
+            base_record = (
+                f"daed dae-core: as shipped in {archive.name} ({len(missing)}/"
+                f"{len(WING_LEGACY_API)} legacy markers absent, but {adapter} adapts wing/ to it)"
             )
         else:
             log(
                 f"   daed-core: {archive.name} does not match wing/ "
-                f"({len(missing)}/{len(PROBES)} probes missing: {', '.join(missing)})"
+                f"({len(missing)}/{len(WING_LEGACY_API)} markers missing) and no patch adapts wing/"
             )
 
             try:
@@ -688,21 +733,22 @@ def main() -> int:
 
             if chosen is None:
                 raise PinError(
-                    "no dae-core candidate satisfies the symbols wing/ uses; upstream moved the API "
-                    "again -- update PROBES in .github/scripts/pin-daed-core.py"
+                    "no dae-core candidate matches wing/'s legacy API; upstream moved it again -- "
+                    "update WING_LEGACY_API in .github/scripts/pin-daed-core.py or ship an "
+                    "adapter patch like 0012-adapt-wing-to-new-core.patch"
                 )
 
             commit, origin, core_tree = chosen
             base_record = (
                 f"daed dae-core: {commit} from {origin} "
-                f"(replaces the tree in {archive.name}, all {len(PROBES)} probes satisfied, "
+                f"(replaces the tree in {archive.name}, all {len(WING_LEGACY_API)} markers present, "
                 f"keeps the shipped {', '.join(submodules) if submodules else 'submodules'})"
             )
 
-        # daed parses the dae config with this core and rejects unknown keys, so
-        # every option current dae writes has to exist here too -- otherwise one
-        # unknown key makes daed drop the whole stored config and run an empty
-        # data plane (see .github/patches/dae-core-config-compat.patch).
+        # The one thing upstream does not provide: response_ttl, which our LuCI
+        # form and generated config can write and daed's parser would reject as
+        # an unknown key -- one unknown key makes daed drop the whole stored
+        # config and run an empty data plane.
         patch_files, patch_records = probe_patch_series(core_tree, workdir, CORE_PATCHES)
         for record in patch_records:
             log(f"   daed-core: {record}")

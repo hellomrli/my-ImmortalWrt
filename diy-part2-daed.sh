@@ -94,36 +94,20 @@ mkdir -p "$dae_patch_dir"
 install -m644 "$repo_root/.github/patches/010-dns-response-ttl.patch" \
     "$dae_patch_dir/010-dns-response-ttl.patch"
 
-# daed 的内嵌 dae-core 也在进程内构建控制面并解析同一份 dae 配置，它的
+# daed 的内嵌 dae-core 也在进程内构建控制面并解析同一份 dae 配置，而它的
 # config/parser.go 同样拒绝未知键：LuCI 表单写入 response_ttl 后，切到 daed 后端会
-# 让 daed 起不来。这份补丁针对 dae-wing 锁定的那个内核版本（上游原版补丁，外加夹具
-# 修正与解析器验收测试），由 pin-daed-core.py 在写 Makefile 前验证可应用。
+# 让 daed 起不来。上游没有这个选项（dae 是直接转发上游 TTL），所以这是我们自己的
+# 功能，仍由补丁提供；两份候选分别对应 dae-wing 锁定的 4 月内核与 dae main 及其
+# 后继版本，pin-daed-core.py 会挑能干净应用的那一份，都不可用则在配置阶段失败。
 install -D -m644 "$repo_root/.github/patches/dae-core-response-ttl.patch" \
     "package/dae/daed/dae-core-patches/dae-core-response-ttl.patch"
-
-# 上面那个 pin 把 dae-core 固定在 2026-04-22，而 dae 的配置面在 2026-09-16 的 kdae
-# 重构里又长出了 disable_thp、auto_sniff_punt、bpf_conn_state_map_size 等键。daed
-# 解析的是同一份 dae 配置且拒绝未知键，一个键就能让整份配置解析失败：2026-09-20
-# 路由器上的 daed 因此丢掉全部运行状态，只剩 direct（Routing match set len: 1/1024），
-# 面板上看起来就像"配置文件丢了"。这份补丁把这四个键按上游定义补进内嵌核，让
-# dae 自带 example.dae 里的键在 daed 后端也能解析（语义为空操作，补丁头有说明）。
-# 必须排在 response_ttl 之后：它是照着打完那份补丁的树生成的。
-install -D -m644 "$repo_root/.github/patches/dae-core-config-compat.patch" \
-    "package/dae/daed/dae-core-patches/dae-core-config-compat.patch"
-
-# 同一套版本错配还让面板的流量统计归零：wing（dae-wing@dc503088，7 月）从**包级**
-# control.SnapshotRuntimeStats 读 uploadRate/uploadTotal，而这个内核版本的数据面只
-# 把字节记进每个控制面实例自己的 runtimeStats（RelayTCPContextWithRecords 传的是
-# c.runtimeUploadRecorder()），全局那份历史于是永远是空的——实机 2026-09-20 的面板
-# 就是 activeConnections=28、udpSessions=67 而 uploadTotal/downloadTotal 全 0。
-# 这份补丁把每一笔按实例的记账同时镜像到包级历史（带防重复计数判断），必须排在
-# 前两份之后：它也是照着打完那两份补丁的树生成的。
-install -D -m644 "$repo_root/.github/patches/dae-core-traffic-stats.patch" \
-    "package/dae/daed/dae-core-patches/dae-core-traffic-stats.patch"
+install -D -m644 "$repo_root/.github/patches/010-dns-response-ttl.patch" \
+    "package/dae/daed/dae-core-patches/010-dns-response-ttl.patch"
 
 # 把这类"配置面漂移"变成构建期失败：断言 dae 包 example.dae 里出现的每个键都能被
 # daed 实际构建的那个 dae-core 接受（pin 过就用 pin 的归档，否则用 tarball 自带的
-# 那份）。上游下次给 dae 加键时，这里十分钟内报警，而不是等运行时把整份配置丢掉。
+# 那份，并把构建期补丁序列重放上去）。上游下次给 dae 加键时，这里十分钟内报警，
+# 而不是等运行时把整份配置丢掉。
 python3 "$repo_root/.github/scripts/check-dae-config-compat.py" --tree "$PWD"
 
 # 预检 package/dae 下各包的 patches/ 能否照 OpenWrt 的方式干净应用。
