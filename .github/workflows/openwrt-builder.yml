@@ -153,8 +153,11 @@ jobs:
           return 1
         }
         apt_retry -qq update
-        apt_retry -qq install ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential bzip2 ccache clang cmake cpio curl device-tree-compiler fastjar flex gawk gettext gcc-multilib g++-multilib git gperf haveged help2man intltool libc6-dev-i386 libelf-dev libfuse-dev libglib2.0-dev libgmp-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libpython3-dev libreadline-dev libssl-dev libtool llvm npm genisoimage ninja-build p7zip p7zip-full patch pkgconf python3 python3-pyelftools python3-setuptools qemu-utils rsync scons squashfs-tools subversion swig texinfo upx-ucl unzip vim wget xmlto xxd zlib1g-dev zstd
-        sudo npm install -g pnpm
+        # Nothing in the build uses npm/pnpm (daed's Makefile only compiles Go;
+        # lucky ships a prebuilt binary), and --no-install-recommends keeps
+        # asciidoc from dragging in TeX.  Together that was ~670 packages and
+        # 1.5-2.5 minutes, mktexlsr alone taking over a minute.
+        apt_retry -qq install --no-install-recommends ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential bzip2 ccache clang cmake cpio curl device-tree-compiler fastjar flex gawk gettext gcc-multilib g++-multilib git gperf haveged help2man intltool libc6-dev-i386 libelf-dev libfuse-dev libglib2.0-dev libgmp-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libpython3-dev libreadline-dev libssl-dev libtool llvm genisoimage ninja-build p7zip p7zip-full patch pkgconf python3 python3-pyelftools python3-setuptools qemu-utils rsync scons squashfs-tools subversion swig texinfo upx-ucl unzip vim wget xmlto xxd zlib1g-dev zstd
         apt_retry -qq autoremove --purge
         apt_retry -qq clean
         sudo timedatectl set-timezone "$TZ"
@@ -241,6 +244,30 @@ jobs:
     - name: Install feeds
       run: cd openwrt && ./scripts/feeds install -a
 
+    # golang-bootstrap otherwise compiles Go 1.4 -> 1.17 -> 1.20 -> 1.22 -> 1.24
+    # from source before the real toolchain (golang1.26/1.27) can start, and
+    # dae, daed and AdGuardHome all wait behind it: 12-20 minutes per build.
+    # Hand it an official Go of the same version instead.  The Go that packages
+    # are built with is still compiled from source by the feed, so the firmware
+    # does not change; only the throwaway bootstrap chain is skipped.
+    - name: Resolve Go bootstrap version
+      id: go-bootstrap
+      run: |
+        makefile=openwrt/feeds/packages/lang/golang/golang-bootstrap/Makefile
+        minor="$(sed -n 's/^GO_VERSION_MAJOR_MINOR:=//p' "$makefile")"
+        patch="$(sed -n 's/^GO_VERSION_PATCH:=//p' "$makefile")"
+        if [ -z "$minor" ]; then
+          echo "::error::Cannot read the Go bootstrap version from $makefile"
+          exit 1
+        fi
+        echo "version=${minor}${patch:+.$patch}" >> "$GITHUB_OUTPUT"
+
+    - name: Install Go bootstrap
+      uses: actions/setup-go@v5
+      with:
+        go-version: ${{ steps.go-bootstrap.outputs.version }}
+        cache: false
+
     - name: Load custom configuration
       env:
         # Read-only use: resolving the rolling dae-src/daed-src release assets
@@ -253,6 +280,11 @@ jobs:
         chmod +x ${{ matrix.diy_p2_sh }}
         cd openwrt
         $GITHUB_WORKSPACE/${{ matrix.diy_p2_sh }}
+        go_root="$(go env GOROOT)"
+        [ -x "$go_root/bin/go" ] || { echo "::error::No bootstrap Go at $go_root"; exit 1; }
+        sed -i '/^CONFIG_GOLANG_BUILD_BOOTSTRAP=/d;/^# CONFIG_GOLANG_BUILD_BOOTSTRAP is not set$/d;/^CONFIG_GOLANG_EXTERNAL_BOOTSTRAP_ROOT=/d' .config
+        printf '# CONFIG_GOLANG_BUILD_BOOTSTRAP is not set\nCONFIG_GOLANG_EXTERNAL_BOOTSTRAP_ROOT="%s"\n' "$go_root" >> .config
+        echo "Go bootstrap: $("$go_root/bin/go" version) at $go_root"
 
     - name: Download package
       id: package
@@ -325,6 +357,12 @@ jobs:
         grep -E '^(PKG_NAME|PKG_VERSION|PKG_RELEASE):=' "$kenzok_dae_makefile"
         grep -E '^(PKG_NAME|PKG_VERSION|PKG_RELEASE):=' "$kenzok_daed_makefile"
         grep -E '^(PKG_NAME|PKG_VERSION|PKG_RELEASE):=' "$kenzok_luci_makefile"
+        if ! grep -qx '# CONFIG_GOLANG_BUILD_BOOTSTRAP is not set' .config ||
+           ! grep -q '^CONFIG_GOLANG_EXTERNAL_BOOTSTRAP_ROOT="/' .config; then
+          echo "::error::The external Go bootstrap was dropped by defconfig; golang-bootstrap would rebuild Go from 1.4."
+          grep -E 'GOLANG_(BUILD_BOOTSTRAP|EXTERNAL_BOOTSTRAP_ROOT)' .config || true
+          exit 1
+        fi
         ppp_proto="package/network/services/ppp/files/ppp.sh"
         echo "Checking PPP syncdial probe patch..."
         if grep -Fq '[ "$(uci get syncdial.config.enabled)" -eq "1" ]' "$ppp_proto"; then
@@ -565,6 +603,20 @@ jobs:
         echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
         echo "SOURCE_NAME=${{ matrix.source }}" >> $GITHUB_ENV
         echo "BRANCH_NAME=${{ matrix.branch }}" >> $GITHUB_ENV
+
+    # Numbers for two open decisions: whether tools/toolchain fit in the Actions
+    # cache budget, and whether ccache hits often enough to pay for the 7-10
+    # minutes CONFIG_CCACHE makes the tools phase wait on cmake -> ccache.
+    - name: Measure build caches
+      if: ${{ !cancelled() }}
+      continue-on-error: true
+      run: |
+        cd openwrt
+        du -sh staging_dir/host staging_dir/hostpkg staging_dir/toolchain-* \
+          build_dir/host build_dir/toolchain-* .ccache 2>/dev/null || true
+        ccache_bin=staging_dir/host/bin/ccache
+        [ -x "$ccache_bin" ] || ccache_bin=ccache
+        CCACHE_DIR="$PWD/.ccache" "$ccache_bin" -s || true
 
     # Save even when the compile failed: a partially warmed ccache still makes
     # the next attempt materially faster.
