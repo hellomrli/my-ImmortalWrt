@@ -24,6 +24,7 @@
 - 📦 fstab 与 apk repositories 从 `diy-part2-daed.sh` 的构建期 heredoc 改为仓库 `files/` 内提交的静态文件（`files/etc/config/fstab`、`files/etc/apk/repositories`），可 diff、可审查，与其余 overlay 覆盖一致；CI 断言同步指向新路径。
 
 ### CI / 构建可靠性
+- 🗑️ dae/daed/luci-app-daede 不再叠加任何本地补丁：上游已自行把 wing 适配到新内核，dae 自带 `response_ttl`，luci-app-daede 在装有 daed 时默认启用 daed（与实机一致）。删除 `pin-daed-core.py`、`check-dae-config-compat.py`、`patch-daede-defaults.py` 和 `.github/patches/` 下两份补丁，共约 1,900 行。`patch-daede-defaults.py` 在上游 luci-app-daede 1.15-r6 上已找不到补丁目标，下次构建本来会在加载配置阶段失败。保留 `pin-daede-source.py`（防源码资产轮换 404）和上游补丁预检。
 - 🧱 第三方包改为经个人镜像 `hellomrli/my-openwrt-packages` 获取（清单见 `.github/packages.json`），上游删库/改名/转私有不再中断构建；镜像不可达时自动回退上游并告警。只抽取清单内的子目录，避免镜像中未使用的 `golang` / `adguardhome-dual` 等包与官方 feed 和本固件 overlay 方案冲突。
 - ⚡ 修复 ccache 缓存**从第二次构建起永不更新**的问题：原 key 只由配置文件内容哈希决定，主 key 必然命中，`actions/cache` 因此跳过保存，ccache 长期停留在首次构建的内容。改为 key 追加 `run_id` 轮转 + 前缀 `restore-keys`。
 - ⚡ 移除 `dl/` 缓存：仓库缓存总配额只有 10 GB，`dl` + ccache × 2 分支必然超额并触发 LRU 驱逐（连带挤掉 update-checker 的 commit 标记，导致上游没更新也重复构建）。重新下载只花几分钟，冷 ccache 要花几小时。顺带移除了曾两次引发 daed 构建错误的 `go-mod-cache` 排除逻辑。

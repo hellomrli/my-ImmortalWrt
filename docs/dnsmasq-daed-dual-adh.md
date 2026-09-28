@@ -27,13 +27,13 @@ dae DNS routing
 
 ## 关键兼容性处理
 
-1. 构建时补丁 `luci-app-daede` 的 dae 生成器，去掉 `ipversion_prefer: 4`，避免一次 LuCI 保存就把全局 DNS 变成近似“只用 IPv4”。
+1. DNS 配置由 daed 面板维护（存于 `/etc/daed/wing.db`），不使用全局 `ipversion_prefer: 4`。`luci-app-daede` 按上游原样编译，其 dae 表单只在切换到 dae 后端时生效，写出的是上游默认的 `cndns` / `fallbackdns`，不是本方案。
 2. 去掉全局 `l4proto(udp) && dport(443) -> block`，避免影响手机 App / 游戏 / QUIC / HTTP3。
 3. 两个 ADH 实例共用官方 `adguardhome` 包提供的 `/usr/bin/AdGuardHome` 二进制；固件只额外提供 `/usr/bin/AdGuardHome-direct` 和 `/usr/bin/AdGuardHome-proxy` 两个 symlink，用于保留 dae `pname(...)` 分流能力。
 4. dae routing 只让 ADH-direct 的实际 Linux 进程名全直连，避免 ISP DNS 查询被 dae 再次送回 ADH 形成环路。
 5. `adh-proxy` 对应的 DoH HTTPS 连接不直连；按 dae 规则走代理。
 6. `adh-proxy` 的 DoH 上游使用 IP-literal DoH，减少 bootstrap 自引用问题。
-7. 实机 `/etc/dae/config.dae` 含有简化 UCI 表单无法表达的节点组和 routing；生成器只覆盖带自身标记的配置，避免一次表单保存清空手工规则。需要修改这类配置时使用原始配置编辑器，或先完整迁移到 UCI。
+7. 不要在 LuCI 里切到 dae 后端后保存 dae 表单：上游生成器会直接覆盖 `/etc/dae/config.dae`，丢掉表单无法表达的节点组和 routing。
 
 ## ADH-direct
 

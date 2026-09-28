@@ -126,10 +126,10 @@ ssh -L 50080:127.0.0.1:50080 -L 50081:127.0.0.1:50081 root@192.168.50.1
 bcrypt 哈希时，可在装有 Apache 工具的电脑运行 `htpasswd -nBC 10 root`，取冒号后的哈希填入
 YAML 的 `users`。
 
-构建阶段会补丁并校验 `luci-app-daede` 的 dae 配置生成器：默认 DNS 上游固定为两个本地 ADH，
-不写入全局 `ipversion_prefer: 4`，并保留 ADH-direct 直连、ADH-proxy 走代理的进程规则。
-生成器只覆盖带有自身生成标记的配置——实机那份包含复杂节点组和手工 routing 的
-`/etc/dae/config.dae` 会被识别为非托管配置，LuCI 表单保存将安全失败而不会清空规则。
+`dae` / `daed` / `luci-app-daede` 按上游原样编译，不再叠加本地补丁。实机运行 daed，
+DNS 分流（`adh_direct` / `adh_proxy`）和节点配置保存在 `/etc/daed/wing.db`，由 daed 面板维护，
+sysupgrade 时随 keep.d 保留。`luci-app-daede` 的 dae 表单仍是上游默认的
+`cndns` / `fallbackdns`，只在切换到 dae 后端并保存表单时才会生效。
 
 详细方案见 [`docs/dnsmasq-daed-dual-adh.md`](docs/dnsmasq-daed-dual-adh.md)。
 

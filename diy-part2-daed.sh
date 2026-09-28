@@ -69,47 +69,9 @@ python3 "$repo_root/.github/scripts/pin-daede-source.py" \
     --tree "$PWD" \
     --provenance "$PWD/package-provenance.txt"
 
-# daed-src 内嵌的 wing/dae-core 取的是 dae 的默认分支，而不是 dae-wing 给该子模块
-# 锁定的提交。dae main 一旦改动 API，wing/ 就编译不过：2026-09-19 dae main 删掉了
-# netutils.FallbackDns 与 dialer.NewFromLink（wing/ 仍在用），daed 包报出 6 个
-# undefined；它被前面的 dae 补丁失败挡在后面，直到两小时后才暴露。
-# 这里先探测 tarball 自带的 dae-core，不合规才解析 dae-wing 真正锁定的提交，并把
-# daed 的 Build/Prepare 换成该提交的源码树（归档由脚本取进 dl/ 并校验）。
-python3 "$repo_root/.github/scripts/pin-daed-core.py" \
-    --tree "$PWD" \
-    --provenance "$PWD/package-provenance.txt"
-
-# dae 的 response_ttl 必须由二进制实现：dae 的配置解析器拒绝未知键
-# （config/parser.go: "unexpected key: %v"），而 luci-app-daede 的表单、
-# gen-dae-config.sh 与默认配置模板都会写入该键——补丁缺失时带 response_ttl 的
-# 配置会让 dae 直接起不来。
+# dae/daed/luci-app-daede 直接使用上游补丁与默认配置，不再叠加本地补丁：上游已自行
+# 适配 wing 与新内核、自带 response_ttl，luci-app-daede 在装有 daed 时默认启用 daed。
 #
-# 镜像里带的是上游那份照 2026.09.12 源码写的补丁。dae-src 是滚动 release，
-# pin-daede-source.py 一旦采用新资产（2026.09.19 起），上游补丁的 hunk 就全部
-# 失配：上游把 NormalizeAndCacheDnsResp_ 拆进了 control/dns_controller_cache.go，
-# 运行时可调项移到了 control/dns_controller_runtime.go，并且不再把 A/AAAA 应答
-# TTL 归零。所以这里用仓库内维护的重建版覆盖镜像那份，保持 pin 自适应上游轮换。
-dae_patch_dir="package/dae/dae/patches"
-mkdir -p "$dae_patch_dir"
-install -m644 "$repo_root/.github/patches/010-dns-response-ttl.patch" \
-    "$dae_patch_dir/010-dns-response-ttl.patch"
-
-# daed 的内嵌 dae-core 也在进程内构建控制面并解析同一份 dae 配置，而它的
-# config/parser.go 同样拒绝未知键：LuCI 表单写入 response_ttl 后，切到 daed 后端会
-# 让 daed 起不来。上游没有这个选项（dae 是直接转发上游 TTL），所以这是我们自己的
-# 功能，仍由补丁提供；两份候选分别对应 dae-wing 锁定的 4 月内核与 dae main 及其
-# 后继版本，pin-daed-core.py 会挑能干净应用的那一份，都不可用则在配置阶段失败。
-install -D -m644 "$repo_root/.github/patches/dae-core-response-ttl.patch" \
-    "package/dae/daed/dae-core-patches/dae-core-response-ttl.patch"
-install -D -m644 "$repo_root/.github/patches/010-dns-response-ttl.patch" \
-    "package/dae/daed/dae-core-patches/010-dns-response-ttl.patch"
-
-# 把这类"配置面漂移"变成构建期失败：断言 dae 包 example.dae 里出现的每个键都能被
-# daed 实际构建的那个 dae-core 接受（pin 过就用 pin 的归档，否则用 tarball 自带的
-# 那份，并把构建期补丁序列重放上去）。上游下次给 dae 加键时，这里十分钟内报警，
-# 而不是等运行时把整份配置丢掉。
-python3 "$repo_root/.github/scripts/check-dae-config-compat.py" --tree "$PWD"
-
 # 预检 package/dae 下各包的 patches/ 能否照 OpenWrt 的方式干净应用。
 # OpenWrt 通过 scripts/patch-kernel.sh 逐个应用：`for i in ${patchdir}/*` 是 shell
 # 通配符展开，即字典序，任一个失败立即 exit 1。这里对 pin-daede-source.py 刚取进
@@ -148,10 +110,8 @@ precheck_patches() {
 
 dae_archives=(dl/dae-src-*.tar.gz)
 daed_archives=(dl/daed-src-*.tar.gz)
-precheck_patches "dae" "$dae_patch_dir" "core" "${dae_archives[0]}"
+precheck_patches "dae" "package/dae/dae/patches" "core" "${dae_archives[0]}"
 precheck_patches "daed" "package/dae/daed/patches" "wing" "${daed_archives[0]}"
-
-python3 "$repo_root/.github/scripts/patch-daede-defaults.py" package/dae
 
 # 构建前立即验证三包来源和版本元数据；任一文件缺失都拒绝继续，避免回退。
 kenzok_dae_makefile="package/dae/dae/Makefile"

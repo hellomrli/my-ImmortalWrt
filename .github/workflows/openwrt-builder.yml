@@ -325,28 +325,6 @@ jobs:
         grep -E '^(PKG_NAME|PKG_VERSION|PKG_RELEASE):=' "$kenzok_dae_makefile"
         grep -E '^(PKG_NAME|PKG_VERSION|PKG_RELEASE):=' "$kenzok_daed_makefile"
         grep -E '^(PKG_NAME|PKG_VERSION|PKG_RELEASE):=' "$kenzok_luci_makefile"
-        patched_defaults="package/dae/luci-app-daede/root/etc/config/daede"
-        patched_generator="package/dae/luci-app-daede/root/usr/share/luci-app-daede/gen-dae-config.sh"
-        echo "Checking local dae + dual AdGuardHome profile patch..."
-        grep -q "option active_backend 'dae'" "$patched_defaults" || {
-          echo "::error::luci-app-daede does not default to the dae backend."
-          exit 1
-        }
-        for expected in \
-          "udp://127.0.0.1:50530" \
-          "udp://127.0.0.1:50531" \
-          "refusing to overwrite unmanaged" \
-          "pname(AdGuardHome-dir, AdGuardHome-dire) -> must_direct" \
-          "pname(AdGuardHome-pro, AdGuardHome-prox) ->"; do
-          if ! grep -Fq "$expected" "$patched_generator"; then
-            echo "::error::Patched dae generator is missing: $expected"
-            exit 1
-          fi
-        done
-        if grep -Fq 'echo "    ipversion_prefer: 4"' "$patched_generator"; then
-          echo "::error::Patched dae generator still forces IPv4-only DNS responses."
-          exit 1
-        fi
         ppp_proto="package/network/services/ppp/files/ppp.sh"
         echo "Checking PPP syncdial probe patch..."
         if grep -Fq '[ "$(uci get syncdial.config.enabled)" -eq "1" ]' "$ppp_proto"; then
