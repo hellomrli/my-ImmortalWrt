@@ -1,0 +1,6 @@
+__pycache__/
+/dl/
+# Router-side upgrade scratch: holds wing.db (daed nodes and subscriptions).
+/.daede-upgrade-*/
+# Local checkout of a package that the build fetches from the mirror.
+/luci-app-watchdog/
