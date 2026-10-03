@@ -157,7 +157,7 @@ jobs:
         # lucky ships a prebuilt binary), and --no-install-recommends keeps
         # asciidoc from dragging in TeX.  Together that was ~670 packages and
         # 1.5-2.5 minutes, mktexlsr alone taking over a minute.
-        apt_retry -qq install --no-install-recommends ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential bzip2 ccache clang cmake cpio curl device-tree-compiler fastjar flex gawk gettext gcc-multilib g++-multilib git gperf haveged help2man intltool libc6-dev-i386 libelf-dev libfuse-dev libglib2.0-dev libgmp-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libpython3-dev libreadline-dev libssl-dev libtool llvm genisoimage ninja-build p7zip p7zip-full patch pkgconf python3 python3-pyelftools python3-setuptools qemu-utils rsync scons squashfs-tools subversion swig texinfo upx-ucl unzip vim wget xmlto xxd zlib1g-dev zstd
+        apt_retry -qq install --no-install-recommends ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential bzip2 ccache clang cmake cpio curl device-tree-compiler fastjar flex gawk gettext gcc-multilib g++-multilib git gperf haveged help2man intltool libc6-dev-i386 libelf-dev libfuse-dev libglib2.0-dev libgmp-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libpython3-dev libreadline-dev libssl-dev libtool llvm genisoimage ninja-build p7zip p7zip-full patch pkgconf python3 python3-pyelftools python3-setuptools python3-yaml qemu-utils rsync scons squashfs-tools subversion swig texinfo upx-ucl unzip vim wget xmlto xxd zlib1g-dev zstd
         apt_retry -qq autoremove --purge
         apt_retry -qq clean
         sudo timedatectl set-timezone "$TZ"
@@ -291,6 +291,17 @@ jobs:
       run: |
         cd openwrt
         make defconfig
+        # New libevdev needs the input-support hardware gate. Older branches
+        # do not define it; check the generated Kconfig, not just .config.
+        [ -s tmp/.config-package.in ] || { echo "::error::Generated package Kconfig is missing."; exit 1; }
+        if grep -Eq '^[[:space:]]*config PACKAGE_input-support[[:space:]]*$' tmp/.config-package.in; then
+          grep -qx 'CONFIG_PACKAGE_input-support=y' .config || {
+            echo "::error::input-support was lost during defconfig; libevdev/libudev-zero and qemu-ga may be unavailable."
+            exit 1
+          }
+        else
+          echo "This branch has no input-support package gate; skipping that assertion."
+        fi
         echo "Checking the networking and recovery profile after defconfig..."
         for symbol in \
           CONFIG_IMAGEOPT \
@@ -435,10 +446,16 @@ jobs:
           echo "::error::${backup_helper} no longer reads the retention list; the two would drift apart again."
           exit 1
         }
-        sh -n "$backup_helper"
-        sh -n files/etc/init.d/adh-direct files/etc/init.d/adh-proxy \
+        for script in \
+          "$backup_helper" \
+          files/etc/init.d/adh-direct files/etc/init.d/adh-proxy \
           files/etc/init.d/perf-tune \
-          files/etc/uci-defaults/98-fstab-single-boot files/etc/uci-defaults/99-adh-dual
+          files/etc/uci-defaults/97-dnsmasq-cache \
+          files/etc/uci-defaults/98-fstab-single-boot files/etc/uci-defaults/99-adh-dual; do
+          sh -n "$script" || { echo "::error::Shell syntax check failed: $script"; exit 1; }
+        done
+        python3 "$GITHUB_WORKSPACE/.github/scripts/test-check-adh-config.py" --etc-dir files/etc
+        python3 "$GITHUB_WORKSPACE/.github/scripts/check-adh-config.py" files/etc
         echo "Checking performance profile..."
         perf_conf="files/etc/sysctl.d/99-performance.conf"
         perf_init="files/etc/init.d/perf-tune"

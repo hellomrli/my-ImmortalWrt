@@ -10,8 +10,9 @@
 
 面向 x86_64 软路由 / PVE / QEMU 的 ImmortalWrt 固件构建仓库。固件按实际路由器
 `192.168.50.1` 的软件结构整理，核心是 **dae / daed 双后端透明代理 + dnsmasq + 双 AdGuardHome
-DNS 分流**，并保留常用管理、QoS、UPnP、SFTP 和虚拟化组件。默认激活与实机一致的 `dae`
-后端，`daed` 保留为可切换后端。
+DNS 分流**，并保留常用管理、QoS、UPnP、SFTP 和虚拟化组件。当前构建选择
+`luci-app-daede` 的 dae 变体，同时包含 `dae` 和 `daed`；实机使用 **daed**，由面板维护
+配置。构建选项不代表保留配置升级后的运行后端，上游默认值不做本地修改。
 
 仅保留两个构建分支，发布名称保持正式的 `immortalwrt`：
 
@@ -54,7 +55,7 @@ DNS 分流**，并保留常用管理、QoS、UPnP、SFTP 和虚拟化组件。�
 - 基于 ImmortalWrt x86_64，适合 PVE、QEMU 和常规 x86 软路由。
 - 默认 LAN IP 为 `192.168.50.1`，避免和常见上级路由 `192.168.1.1` 冲突。
 - 同时内置 `dae` 与 `daed`，通过 `luci-app-daede` 统一管理和切换后端。
-- 内置 `dnsmasq + dae（默认）/ daed（可选）+ 双 AdGuardHome` DNS 分流结构。
+- 内置 `dnsmasq + dae / daed + 双 AdGuardHome`；实机 DNS 分流由 daed 管理。
 - 双 AdGuardHome 以独立 procd 服务运行，不使用 `luci-app-adguardhome` 管理。
 - 预装 `openssh-sftp-server`，方便通过 SFTP / SCP 传递文件。
 - 预装 `qemu-ga`，适合 PVE / QEMU 虚拟机管理、关机和状态识别。
@@ -88,10 +89,11 @@ DNS 分流**，并保留常用管理、QoS、UPnP、SFTP 和虚拟化组件。�
 LAN clients
   ↓ DNS :53
 dnsmasq
-  ↓ dae 透明 DNS 接管 / 分流（daed 可选）
-dae DNS routing
+  ↓ daed 透明 DNS 接管 / 分流（实机配置）
+daed DNS routing
   ├─ 国内 / private 域名 → ADH-direct :50530 → ISP DNS
-  └─ 国外 / fallback    → ADH-proxy  :50531 → DoH DNS
+  └─ 国外 / fallback    → ADH-proxy  :50531 → 经代理的 DoH
+                                            └─ 上游失败 → ADH-direct
 ```
 
 | 组件 | 地址 | 端口 | 用途 |
@@ -131,7 +133,11 @@ DNS 分流（`adh_direct` / `adh_proxy`）和节点配置保存在 `/etc/daed/wi
 sysupgrade 时随 keep.d 保留。`luci-app-daede` 的 dae 表单仍是上游默认的
 `cndns` / `fallbackdns`，只在切换到 dae 后端并保存表单时才会生效。
 
-详细方案见 [`docs/dnsmasq-daed-dual-adh.md`](docs/dnsmasq-daed-dual-adh.md)。
+详细方案见 [`docs/dnsmasq-daed-dual-adh.md`](docs/dnsmasq-daed-dual-adh.md)。当前新装模板的
+ADH-proxy 使用四个 IPv4 DoH 上游、`upstream_timeout: 3s`，并暂时禁用国外 AAAA；
+ADH-direct 保留双栈。代理 DNS 上游失败时会兜底到本机 ADH-direct，查询随后走 ISP 明文
+DNS，不再保证全程加密，也不保证国外域名解析或代理业务恢复。3s 不是端到端耗时上限。
+保留配置升级不会自动采用这些新默认；已有设备需按方案文档备份后自行选择是否更新。
 
 ## 第三方包来源
 

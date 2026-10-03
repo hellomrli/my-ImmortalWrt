@@ -41,7 +41,11 @@ dns:
     - 221.7.136.68
     - 223.5.5.5
     - 119.29.29.29
-  fallback_dns: []
+  # Keep the foreign DoH path primary, but use the local direct resolver when
+  # the proxy node is temporarily unavailable. Fallback uses plaintext ISP DNS;
+  # it does not guarantee foreign resolution or restore proxy connectivity.
+  fallback_dns:
+    - 127.0.0.1:50530
   upstream_mode: parallel
   fastest_timeout: 1s
   allowed_clients: []
@@ -72,7 +76,7 @@ dns:
   ipset: []
   ipset_file: ""
   bootstrap_prefer_ipv6: false
-  upstream_timeout: 10s
+  upstream_timeout: 3s
   private_networks: []
   use_private_ptr_resolvers: true
   local_ptr_upstreams: []
