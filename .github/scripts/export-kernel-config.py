@@ -26,6 +26,7 @@ def export_kernel_config(tree: Path, output: Path) -> None:
         "CONFIG_BPF_SYSCALL": ("y",),
         "CONFIG_CGROUP_BPF": ("y",),
         "CONFIG_DEBUG_INFO_BTF": ("y",),
+        "CONFIG_NETKIT": ("y",),
         "CONFIG_XDP_SOCKETS": ("y",),
         "CONFIG_NET_SCH_FQ": ("y", "m"),
         "CONFIG_TCP_CONG_BBR": ("y", "m"),

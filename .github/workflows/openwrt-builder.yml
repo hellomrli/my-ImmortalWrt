@@ -308,8 +308,10 @@ jobs:
           CONFIG_PREINITOPT \
           CONFIG_KERNEL_DEBUG_INFO_BTF \
           CONFIG_KERNEL_CGROUP_BPF \
+          CONFIG_KERNEL_NETKIT \
           CONFIG_KERNEL_XDP_SOCKETS \
           CONFIG_PACKAGE_kmod-sched \
+          CONFIG_PACKAGE_kmod-veth \
           CONFIG_PACKAGE_qemu-ga \
           CONFIG_PACKAGE_glib2; do
           grep -qx "${symbol}=y" .config || {
