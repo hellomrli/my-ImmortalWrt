@@ -1,0 +1,10 @@
+config global
+	option anon_swap '0'
+	option anon_mount '0'
+	option auto_swap '0'
+	option auto_mount '0'
+	option delay_root '5'
+	option check_fs '0'
+
+# x86 platform boot handling already mounts the boot partition (vda1 on this
+# QEMU guest). Do not hard-code sda1 or mount it again via block auto-mount.

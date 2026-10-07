@@ -166,7 +166,7 @@ jobs:
     - name: Clone source code
       run: |
         df -hT "$PWD"
-        git clone --depth 1 ${{ matrix.repo_url }} -b ${{ matrix.branch }} openwrt
+        git clone --depth 1 ${{ matrix.repo_url }} -b ${{ matrix.upstream_branch || matrix.branch }} openwrt
         # Recorded so the update checker's "already built" marker is only
         # written after this exact upstream commit has published successfully.
         echo "SOURCE_SHA=$(git -C openwrt rev-parse HEAD)" >> $GITHUB_ENV
@@ -268,6 +268,14 @@ jobs:
         go-version: ${{ steps.go-bootstrap.outputs.version }}
         cache: false
 
+    - name: Test IPTV scanner and target integration
+      if: matrix.branch == 'iptv'
+      run: |
+        python3 .github/scripts/test-iptv-integration.py
+        cd packages/gxmobile-scan/src
+        go test -race ./...
+        go vet ./...
+
     - name: Load custom configuration
       env:
         # Read-only use: resolving the rolling dae-src/daed-src release assets
@@ -275,8 +283,8 @@ jobs:
         # and the unauthenticated API limit is shared with other runners.
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        [ -e files ] && mv files openwrt/files
-        [ -e ${{ matrix.config_file }} ] && mv ${{ matrix.config_file }} openwrt/.config
+        cp -a "${{ matrix.files_dir || 'files' }}" openwrt/files
+        cp "${{ matrix.config_file }}" openwrt/.config
         chmod +x ${{ matrix.diy_p2_sh }}
         cd openwrt
         $GITHUB_WORKSPACE/${{ matrix.diy_p2_sh }}
@@ -291,6 +299,9 @@ jobs:
       run: |
         cd openwrt
         make defconfig
+        if [ "${{ matrix.branch }}" = iptv ]; then
+          python3 "$GITHUB_WORKSPACE/.github/scripts/check-iptv-profile.py" "$PWD"
+        else
         # New libevdev needs the input-support hardware gate. Older branches
         # do not define it; check the generated Kconfig, not just .config.
         [ -s tmp/.config-package.in ] || { echo "::error::Generated package Kconfig is missing."; exit 1; }
@@ -516,6 +527,7 @@ jobs:
           echo "::error::An init script still overrides the protected AdGuardHome Web address."
           exit 1
         fi
+        fi
         # Download with truncation check folded into the same loop.  A flaky
         # download can exit 0 while leaving truncated files in dl/; without this
         # check they would be carried into the compile stage as a serial refetch.
@@ -717,6 +729,15 @@ jobs:
           echo "::error::No firmware package manifest found; cannot verify F2FS overlay bootstrap packages."
           exit 1
         fi
+        if [ "${{ matrix.branch }}" = iptv ]; then
+          python3 "$GITHUB_WORKSPACE/.github/scripts/check-iptv-profile.py" ../../../.. --manifest "$manifest"
+          for pkg in gxmobile-scan luci-app-gxmobile; do
+            package_file="$(find ../../../packages -type f -name "${pkg}-*.apk" -print -quit)"
+            [ -n "$package_file" ] || { echo "::error::No installable APK for $pkg"; exit 1; }
+            cp "$package_file" .
+            sha256sum "$(basename "$package_file")" >> sha256sums
+          done
+        else
         echo "Checking required runtime packages in $manifest..."
         for pkg in kmod-fs-f2fs mkf2fs f2fsck openssh-sftp-server adguardhome kmod-sched qemu-ga; do
           if ! grep -Eq "^${pkg}[[:space:]]" "$manifest"; then
@@ -749,13 +770,14 @@ jobs:
           grep -E '^(luci-app-daed|daed-(geoip|geosite))[[:space:]]' "$manifest"
           exit 1
         fi
+        fi
         rm -rf packages
         cp -f ../../../../.config "${{ matrix.source }}-${{ matrix.branch }}.config" 2>/dev/null || true
         # Ship the resolved third-party package sources with the firmware so a
         # released image can be traced back to exact mirror/upstream commits.
         cp -f ../../../../package-provenance.txt "${{ matrix.source }}-${{ matrix.branch }}_packages.txt" 2>/dev/null || true
         python3 "$GITHUB_WORKSPACE/.github/scripts/export-kernel-config.py" \
-          ../../../.. "${{ matrix.source }}-${{ matrix.branch }}_kernel.config"
+          ../../../.. "${{ matrix.source }}-${{ matrix.branch }}_kernel.config" --profile "${{ matrix.branch }}"
         echo "Published firmware files:"
         find . -maxdepth 1 -type f -printf '%f\n' | sort
         echo "FIRMWARE=$PWD" >> $GITHUB_ENV
@@ -776,6 +798,10 @@ jobs:
       if: steps.organize.outputs.status == 'success' && env.UPLOAD_RELEASE == 'true' && !cancelled()
       run: |
         echo "release_tag=${{ matrix.source }}-${{ matrix.branch }}-$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
+        if [ "${{ matrix.branch }}" = iptv ]; then
+          python3 "$GITHUB_WORKSPACE/.github/scripts/iptv-release-notes.py" > release.txt
+          echo "status=success" >> "$GITHUB_OUTPUT"
+        else
         touch release.txt
         echo "📦 **ImmortalWrt x86_64 固件**" >> release.txt
         echo "" >> release.txt
@@ -815,6 +841,7 @@ jobs:
         echo "- 升级前运行：\`my-sysupgrade-backup\`，并把生成的压缩包复制到电脑/NAS" >> release.txt
         echo "- 本仓库不再构建或发布 ext4 combined 镜像" >> release.txt
         echo "status=success" >> $GITHUB_OUTPUT
+        fi
 
     - name: Upload to release
       id: release

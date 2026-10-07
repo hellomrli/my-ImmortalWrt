@@ -1,0 +1,42 @@
+config defaults
+	option input 'REJECT'
+	option output 'ACCEPT'
+	option forward 'DROP'
+	option synflood_protect '1'
+	option flow_offloading '1'
+	option flow_offloading_hw '0'
+	option fullcone '0'
+	option fullcone6 '0'
+
+config zone
+	option name 'lan'
+	list network 'lan'
+	option input 'ACCEPT'
+	option output 'ACCEPT'
+	option forward 'ACCEPT'
+
+config zone
+	option name 'wan'
+	list network 'wan'
+	option input 'REJECT'
+	option output 'ACCEPT'
+	option forward 'DROP'
+	option masq '1'
+	option mtu_fix '1'
+
+config forwarding
+	option src 'lan'
+	option dest 'wan'
+
+config rule
+	option name 'Allow-Ping'
+	option src 'wan'
+	option proto 'icmp'
+	list icmp_type 'echo-request'
+	list icmp_type 'destination-unreachable'
+	list icmp_type 'time-exceeded'
+	option family 'ipv4'
+	option target 'ACCEPT'
+
+# Lucky terminates HTTP locally. No unsolicited WAN -> LAN forwarding or IGMP
+# proxy is required for this HLS path; established reply traffic is automatic.

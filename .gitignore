@@ -4,3 +4,5 @@ __pycache__/
 /.daede-upgrade-*/
 # Local checkout of a package that the build fetches from the mirror.
 /luci-app-watchdog/
+# Locally generated installable packages; sources live in packages/.
+/artifacts/

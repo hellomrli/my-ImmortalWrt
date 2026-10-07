@@ -1,0 +1,15 @@
+#!/bin/sh /etc/rc.common
+START=99
+
+start() {
+	local output
+	modprobe tcp_bbr 2>/dev/null || true
+	modprobe sch_fq 2>/dev/null || true
+	[ -e /proc/sys/net/netfilter/nf_conntrack_max ] || modprobe nf_conntrack 2>/dev/null || true
+	if output=$(sysctl -p /etc/sysctl.d/99-iptv-performance.conf 2>&1); then
+		logger -t iptv-perf "applied IPTV TCP profile: BBR + fq, adaptive buffers"
+	else
+		logger -t iptv-perf -p daemon.err "profile application failed: $output"
+		return 1
+	fi
+}

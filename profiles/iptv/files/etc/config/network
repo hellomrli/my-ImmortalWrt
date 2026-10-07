@@ -1,0 +1,30 @@
+config interface 'loopback'
+	option device 'lo'
+	option proto 'static'
+	option ipaddr '127.0.0.1'
+	option netmask '255.0.0.0'
+
+config globals 'globals'
+	option packet_steering '1'
+
+config device
+	option name 'br-lan'
+	option type 'bridge'
+	list ports 'eth0'
+
+config interface 'lan'
+	option device 'br-lan'
+	option proto 'static'
+	option ipaddr '192.168.50.250'
+	option netmask '255.255.255.0'
+
+# Existing network configuration (including credentials and auto-start) wins
+# during a configuration-preserving upgrade. Fresh installs must set credentials
+# and enable "Bring up on boot" in LuCI before dialing the IPTV connection.
+config interface 'wan'
+	option device 'eth1'
+	option proto 'pppoe'
+	option username ''
+	option password ''
+	option ipv6 '0'
+	option auto '0'

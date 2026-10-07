@@ -7,7 +7,7 @@ import shutil
 import sys
 
 
-def export_kernel_config(tree: Path, output: Path) -> None:
+def export_kernel_config(tree: Path, output: Path, profile: str = "master") -> None:
     candidates = sorted(
         path
         for path in tree.glob("build_dir/target-*/linux-x86_64/linux-[0-9]*/.config")
@@ -31,6 +31,8 @@ def export_kernel_config(tree: Path, output: Path) -> None:
         "CONFIG_NET_SCH_FQ": ("y", "m"),
         "CONFIG_TCP_CONG_BBR": ("y", "m"),
     }
+    if profile == "iptv":
+        required = {key: required[key] for key in ("CONFIG_X86_64", "CONFIG_NET_SCH_FQ", "CONFIG_TCP_CONG_BBR")}
     for symbol, values in required.items():
         if not any(f"{symbol}={value}" in lines for value in values):
             raise RuntimeError(f"{config} is missing required kernel support: {symbol}")
@@ -43,8 +45,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("tree", type=Path, help="OpenWrt source tree")
     parser.add_argument("output", type=Path, help="Release attachment path")
+    parser.add_argument("--profile", choices=("master", "iptv"), default="master")
     args = parser.parse_args()
-    export_kernel_config(args.tree, args.output)
+    export_kernel_config(args.tree, args.output, args.profile)
 
 
 if __name__ == "__main__":

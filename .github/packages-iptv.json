@@ -1,0 +1,23 @@
+{
+  "_comment": [
+    "Packages used only by the IPTV firmware profile; master uses packages.json unchanged."
+  ],
+  "mirror": {
+    "repo": "https://github.com/hellomrli/my-openwrt-packages.git",
+    "ref": "main"
+  },
+  "packages": [
+    {
+      "name": "luci-app-lucky",
+      "description": "Lucky runtime + LuCI app",
+      "target": "package/lucky",
+      "mirror_path": "luci-app-lucky",
+      "upstream": "https://github.com/gdy666/luci-app-lucky.git",
+      "upstream_ref": null,
+      "require": [
+        "lucky/Makefile",
+        "luci-app-lucky/Makefile"
+      ]
+    }
+  ]
+}

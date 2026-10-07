@@ -43,7 +43,8 @@ jobs:
         matrix = json.dumps(
             {
                 "include": [
-                    {"source": t["source"], "repo_url": t["repo_url"], "branch": t["branch"]}
+                    {"source": t["source"], "repo_url": t["repo_url"], "branch": t["branch"],
+                     "upstream_branch": t.get("upstream_branch", t["branch"])}
                     for t in targets
                 ]
             },
@@ -73,8 +74,8 @@ jobs:
       id: getHash
       run: |
         mkdir -p .commitHash
-        commit_hash="$(git ls-remote "${{ matrix.repo_url }}" "refs/heads/${{ matrix.branch }}" | awk '{print $1}')"
-        [ -n "$commit_hash" ] || { echo "Failed to resolve ${{ matrix.repo_url }} branch ${{ matrix.branch }}"; exit 1; }
+        commit_hash="$(git ls-remote "${{ matrix.repo_url }}" "refs/heads/${{ matrix.upstream_branch }}" | awk '{print $1}')"
+        [ -n "$commit_hash" ] || { echo "Failed to resolve ${{ matrix.repo_url }} branch ${{ matrix.upstream_branch }}"; exit 1; }
         echo "${{ matrix.source }}/${{ matrix.branch }}=$commit_hash" > ".commitHash/${{ matrix.source }}-${{ matrix.branch }}"
         echo "commitHash=$commit_hash" >> $GITHUB_OUTPUT
 

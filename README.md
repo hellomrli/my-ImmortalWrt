@@ -14,12 +14,14 @@ DNS 分流**，并保留常用管理、QoS、UPnP、SFTP 和虚拟化组件。�
 `luci-app-daede` 的 dae 变体，同时包含 `dae` 和 `daed`；实机使用 **daed**，由面板维护
 配置。构建选项不代表保留配置升级后的运行后端，上游默认值不做本地修改。
 
-仅保留两个构建分支，发布名称保持正式的 `immortalwrt`：
+构建目标为 **master** 和 **iptv**，都使用 ImmortalWrt 上游最新 `master` 源码。
+原 master 的软件选择、网络配置和预置文件保持不变；`openwrt-25.12` 已停止构建。
+`iptv` 是独立固件目标，面向 `192.168.50.250` 的专用 IPTV 转发设备，详见 [IPTV 说明](docs/iptv.md)。
 
 | 固件 | 上游分支 | 推荐下载 |
 | --- | --- | --- |
 | `immortalwrt-master` | ImmortalWrt `master` | `squashfs-combined-efi.img.gz` |
-| `immortalwrt-openwrt-25.12` | ImmortalWrt `openwrt-25.12` | `squashfs-combined-efi.img.gz` |
+| `immortalwrt-iptv` | ImmortalWrt `master`，IPTV 专用配置 | `squashfs-combined-efi.img.gz` |
 
 ## 当前构建概览
 
@@ -27,12 +29,12 @@ DNS 分流**，并保留常用管理、QoS、UPnP、SFTP 和虚拟化组件。�
 | 构建目标 | 构建状态 | 最新版本 | 发布时间 | Release | 推荐下载 |
 |----------|----------|----------|----------|---------|----------|
 | ImmortalWrt `master` | 已发布 | `immortalwrt-master-2026.10.04-2030` | 2026-10-04 20:30 CST | [下载](https://github.com/hellomrli/my-ImmortalWrt/releases/tag/immortalwrt-master-2026.10.04-2030) | `squashfs-combined-efi.img.gz` |
-| ImmortalWrt `openwrt-25.12` | 已发布 | `immortalwrt-openwrt-25.12-2026.10.04-2024` | 2026-10-04 20:24 CST | [下载](https://github.com/hellomrli/my-ImmortalWrt/releases/tag/immortalwrt-openwrt-25.12-2026.10.04-2024) | `squashfs-combined-efi.img.gz` |
+| ImmortalWrt `iptv`（上游 master） | 暂无 Release | - | - | - | `squashfs-combined-efi.img.gz` |
 
 > 此表由 GitHub Actions 自动更新；新 Release 发布后会同步最新版本和链接。
 <!-- BUILD_TABLE_END -->
 
-## 默认参数
+## master 默认参数
 
 | 项目 | 默认值 |
 | --- | --- |
@@ -181,8 +183,9 @@ PKG_SOURCE=mirror        # 强制只用镜像，缺包即失败
 ## 构建流水线
 
 [`configs/immortalwrt.config`](configs/immortalwrt.config) 保存精简构建选项，由上游
-`scripts/diffconfig.sh` 提取，并补齐两个分支都需要显式保留的设置。每个分支在
-`make defconfig` 后校验恢复模式 IP、BTF、`kmod-sched` 和 QEMU Guest Agent；最终完整
+`scripts/diffconfig.sh` 提取，并补齐两个分支都需要显式保留的设置。master 在
+`make defconfig` 后校验恢复模式 IP、BTF、`kmod-sched` 和 QEMU Guest Agent；IPTV 使用
+独立的 `configs/iptv.config` 和校验脚本，恢复地址为 `.250`，不要求透明代理的 BPF 组件。最终完整
 `.config` 随 Release 发布。Ruby 及其标准库不再预装，`qemu-ga` 所需的 GLib 依赖保留。
 
 内核配置附件只从 `build_dir/target-*/linux-x86_64/linux-*/.config` 导出，并校验
@@ -208,7 +211,9 @@ GitHub 托管 runner 有几条硬性限制，流水线是围绕它们设计的�
   因此构建失败会在下次检查时重试，而不是等上游再次提交。
 - 每个分支保留最近 5 个 Release、最近 20 条运行记录。
 
-手动触发：Actions → `OpenWrt Builder` → Run workflow，可指定 `sources` / `branches`。
+手动触发：Actions → `OpenWrt Builder` → Run workflow，`branches` 填 `master`、`iptv` 或 `all`。
+两者的缓存、更新检查和 Release 标签独立；IPTV 从 `profiles/iptv/files` 加载自己的预置文件，
+包含 Lucky、`luci-app-gxmobile`、BBR/fq 和扫描数据保留规则，不混入 master 的代理/DNS 服务。
 
 ## 性能调优
 
@@ -356,7 +361,7 @@ my-sysupgrade-backup /mnt/sda2/my-router-backup.tar.gz   # 直接写到持久磁
 
 ### 升级步骤
 
-1. 保持同一分支：`master → master` 或 `openwrt-25.12 → openwrt-25.12`。
+1. 保持相同固件用途：`master → master` 或 `iptv → iptv`。旧 IPTV 设备首次迁移见 [IPTV 备份说明](docs/iptv.md)。
    不要在一次保留配置升级中跨分支迁移。
 2. EFI 用 `squashfs-combined-efi.img.gz`；Legacy BIOS 用 `squashfs-combined.img.gz`。
    **不要用 `rootfs.tar.gz` 做 sysupgrade。**

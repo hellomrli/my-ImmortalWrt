@@ -16,13 +16,15 @@
       "diy_p2_sh": "diy-part2-daed.sh"
     },
     {
-      "label": "ImmortalWrt `openwrt-25.12`",
+      "label": "ImmortalWrt `iptv`（上游 master）",
       "source": "immortalwrt",
-      "branch": "openwrt-25.12",
+      "branch": "iptv",
+      "upstream_branch": "master",
       "repo_url": "https://github.com/immortalwrt/immortalwrt",
-      "config_file": "configs/immortalwrt.config",
+      "config_file": "configs/iptv.config",
+      "files_dir": "profiles/iptv/files",
       "diy_p1_sh": "diy-part1.sh",
-      "diy_p2_sh": "diy-part2-daed.sh"
+      "diy_p2_sh": "diy-part2-iptv.sh"
     }
   ]
 }
