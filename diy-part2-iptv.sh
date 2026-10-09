@@ -14,6 +14,10 @@ rm -rf package/feeds/packages/squeezelite feeds/packages/sound/squeezelite
 python3 "$repo_root/.github/scripts/fetch-packages.py" \
     --config "$repo_root/.github/packages-iptv.json" --tree "$PWD" \
     --provenance "$PWD/package-provenance.txt"
+# Lucky 核心包 3.x 只在官方文件服务发布，下载前对齐官方最新版并校验逐架构 sha256；
+# 理由与 master 的 diy-part2-daed.sh 相同。
+python3 "$repo_root/.github/scripts/pin-lucky-source.py" \
+    --tree "$PWD" --provenance "$PWD/package-provenance.txt"
 for package in gxmobile-scan luci-app-gxmobile; do
     mkdir -p "package/$package"
     cp -a "$repo_root/packages/$package/." "package/$package/"

@@ -150,7 +150,7 @@ DNS，不再保证全程加密，也不保证国外域名解析或代理业务�
 | 包 | 镜像路径 | 上游 |
 | --- | --- | --- |
 | `dae` / `daed` / `luci-app-daede` | `openwrt-daede` | `kenzok8/openwrt-daede` |
-| `lucky` / `luci-app-lucky` | `luci-app-lucky` | `gdy666/luci-app-lucky` |
+| `lucky` / `luci-app-lucky` | `luci-app-lucky` | `gdy666/luci-app-lucky`（LuCI 界面）+ [官方文件服务](https://release.66666.host/)（核心包） |
 | `watchdog` / `luci-app-watchdog` | `luci-app-watchdog` | `sirpdboy/luci-app-watchdog` |
 
 包清单是 [`.github/packages.json`](.github/packages.json)，由
@@ -170,6 +170,20 @@ DNS，不再保证全程加密，也不保证国外域名解析或代理业务�
 被删掉则改用该 release 最新资产并回写 `PKG_VERSION` / `PKG_RELEASE` / `PKG_SOURCE` / `PKG_HASH`，
 随后把 tar 包取进 `dl/`，校验 sha256、文件名内嵌的 12 位内容 id 和 Makefile 需要的目录结构
 （`core/` + `outbound/` + `quic-go/`，daed 为 `wing/`）。实际使用的 tar 包记入 `package-provenance.txt`。
+
+**Lucky 的核心包从 3.x 起闭源**，走的是另一条路：`gdy666/lucky` 的 GitHub release 停在
+v2.27.2，新版本只在官方文件服务 [`release.66666.host`](https://release.66666.host/) 发布
+（路径为 `v<版本>/<版本>_lucky/lucky_<版本>_Linux_<架构>.tar.gz`，同目录 `checksums.txt`
+给出各架构 sha256）。镜像用
+[`overrides/luci-app-lucky/lucky`](https://github.com/hellomrli/my-openwrt-packages/tree/main/overrides/luci-app-lucky/lucky)
+固定核心包 Makefile——否则每 6 小时的同步会把它退回 2.27.2。构建前由
+[`.github/scripts/pin-lucky-source.py`](.github/scripts/pin-lucky-source.py) 取官方最新发布，
+回写 `PKG_VERSION` / `PKG_SOURCE_URL` 和逐架构哈希表（未列出的架构退回 `skip`，由
+`make download` 自行判定），并打印实际使用的版本。服务不可达时保留镜像里的 pin，交给
+`make download`；镜像没能给出指向该服务的 Makefile 时直接失败，不会静默退回 2.27.2。
+LuCI 界面仍跟随上游同步（已是 3.0.0，与官方发布的 `luci-app-lucky-3.0.0-r1.apk` 同版本；
+`lucky-call` 用到的 `-info` / `-baseConfInfo` / `-setconf` 接口在 3.1.4 二进制上实测可用）。
+需要钉住某个版本时设置 `LUCKY_VERSION=3.1.4`，其余仍按官方最新。
 
 上游改动打断构建时，把 `.github/packages.json` 的 `mirror.ref` 从 `main` 改成某个已知可用的
 commit SHA，即可一次性冻结全部第三方包。也可用环境变量临时覆盖：
@@ -405,5 +419,6 @@ RAM——**先把配置备份到外部设备，再排查，期间不要重启**�
 - [AdGuardHome](https://github.com/AdguardTeam/AdGuardHome)
 - [OpenWrt packages](https://github.com/openwrt/packages)
 - [gdy666/luci-app-lucky](https://github.com/gdy666/luci-app-lucky)
+- [Lucky 官方发布页](https://release.66666.host/)
 - [sirpdboy/luci-app-watchdog](https://github.com/sirpdboy/luci-app-watchdog)
 - [hellomrli/my-openwrt-packages](https://github.com/hellomrli/my-openwrt-packages)（第三方包镜像）

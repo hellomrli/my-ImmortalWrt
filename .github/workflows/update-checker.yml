@@ -63,8 +63,11 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
       # 只监控 ImmortalWrt 上游分支（来自 .github/targets.json）。
-      # Lucky / Watchdog / kenzok8 dae + daed + luci-app-daede 会在每次固件构建前
-      # 直接从各自上游仓库拉取；Golang / AdGuardHome 使用 ImmortalWrt 官方 feeds。
+      # Watchdog / kenzok8 dae + daed + luci-app-daede 会在每次固件构建前
+      # 直接从各自上游仓库拉取；Lucky 的 LuCI 界面来自上游仓库，核心包来自官方
+      # 文件服务 https://release.66666.host/（GitHub 停在 v2.27.2，见
+      # .github/scripts/pin-lucky-source.py）；Golang / AdGuardHome 使用
+      # ImmortalWrt 官方 feeds。
       # 这里不把第三方仓库作为自动触发源，避免频繁变动导致无意义构建；
       # 任意一次固件构建都会重新拉取 kenzok8/openwrt-daede 默认分支的最新版本。
 

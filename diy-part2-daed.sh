@@ -69,6 +69,16 @@ python3 "$repo_root/.github/scripts/pin-daede-source.py" \
     --tree "$PWD" \
     --provenance "$PWD/package-provenance.txt"
 
+# Lucky 从 3.x 起闭源，只在官方文件服务 https://release.66666.host/ 发布预编译二进制，
+# GitHub 上的 gdy666/lucky 停在 v2.27.2；镜像里保存的核心包 Makefile 指向该服务
+# （overrides/luci-app-lucky/lucky），这里在下载前把版本、下载地址和逐架构 sha256
+# 对齐到官方最新发布，并校验 checksums.txt 确实列出这些资产。服务不可达时保留镜像里
+# 的 pin，交给 make download 判定；镜像也没能提供指向该服务的 Makefile 时直接失败，
+# 避免静默退回 2.27.2。
+python3 "$repo_root/.github/scripts/pin-lucky-source.py" \
+    --tree "$PWD" \
+    --provenance "$PWD/package-provenance.txt"
+
 # dae/daed/luci-app-daede 直接使用上游补丁与默认配置，不再叠加本地补丁：上游已自行
 # 适配 wing 与新内核、自带 response_ttl，luci-app-daede 在装有 daed 时默认启用 daed。
 #
