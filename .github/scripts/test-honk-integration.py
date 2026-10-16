@@ -1,0 +1,157 @@
+#!/usr/bin/env python3
+"""Regression tests for the isolated Honk test firmware and its release gates."""
+
+import hashlib
+import importlib.util
+import json
+from pathlib import Path
+import shutil
+import tempfile
+import unittest
+from unittest import mock
+
+import yaml
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def load(name):
+    spec = importlib.util.spec_from_file_location(name.replace("-", "_"), ROOT / ".github/scripts" / f"{name}.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+profile = load("check-honk-profile")
+source = load("pin-honk-source")
+kernel = load("export-kernel-config")
+compat = load("patch-test-feed-compat")
+
+
+class HonkTests(unittest.TestCase):
+    def stage(self, tree):
+        shutil.copytree(ROOT / "files", tree / "files", symlinks=True)
+        with (tree / "files/lib/upgrade/keep.d/my-immortalwrt").open("a") as handle:
+            handle.write("/etc/config/honk\n/etc/honk\n")
+        for name in ("honk", "luci-app-honk"):
+            path = tree / "package/honk" / name / "Makefile"
+            path.parent.mkdir(parents=True)
+            path.write_text(f"PKG_NAME:={name}\nPKG_VERSION:=2026.10.16\nPKG_RELEASE:=1\n")
+        config = (ROOT / "configs/honk.config").read_text()
+        config += "\n" + "".join(f"CONFIG_PACKAGE_{name}=y\n" for name in profile.REQUIRED
+                                  if f"CONFIG_PACKAGE_{name}=y" not in config.splitlines())
+        config += "\nCONFIG_PACKAGE_dnsmasq-full=y\n"
+        (tree / ".config").write_text(config)
+        packages = list(profile.REQUIRED) + ["dnsmasq-full"]
+        manifest = tree / "firmware.manifest"
+        manifest.write_text("".join(f"{name} - 2026.10.16-r1\n" for name in packages))
+        return manifest
+
+    def test_profile_and_manifest(self):
+        with tempfile.TemporaryDirectory() as directory:
+            tree = Path(directory)
+            manifest = self.stage(tree)
+            profile.check(tree, manifest)
+            config = tree / ".config"
+            original = config.read_text()
+            for package in ("kmod-nft-queue", "kmod-nfnetlink-queue", "honk", "adguardhome"):
+                with self.subTest(missing=package):
+                    config.write_text(original.replace(f"CONFIG_PACKAGE_{package}=y", f"# CONFIG_PACKAGE_{package} is not set"))
+                    with self.assertRaises(RuntimeError):
+                        profile.check(tree)
+            config.write_text(original)
+            for name in ("dae", "daed", "luci-app-daede", "daed-geosite", "luci-app-daede_dae"):
+                config.write_text(original + f"CONFIG_PACKAGE_{name}=m\n")
+                with self.assertRaises(RuntimeError):
+                    profile.check(tree)
+            config.write_text(original)
+            original_manifest = manifest.read_text()
+            for contents in (original_manifest + "daed - 1-r1\n",
+                             original_manifest.replace("kmod-nft-queue - 2026.10.16-r1\n", ""),
+                             original_manifest.replace("honk - 2026.10.16-r1", "honk - 2026.10.16-r2")):
+                manifest.write_text(contents)
+                with self.assertRaises(RuntimeError):
+                    profile.check(tree, manifest)
+
+    def test_kernel_export_requires_real_nfqueue_and_ebpf(self):
+        with tempfile.TemporaryDirectory() as directory:
+            tree = Path(directory)
+            config = tree / "build_dir/target-x86_64/linux-x86_64/linux-6.18/.config"
+            config.parent.mkdir(parents=True)
+            base = "".join(f"CONFIG_{name}=y\n" for name in (
+                "X86_64", "BPF_SYSCALL", "CGROUP_BPF", "DEBUG_INFO_BTF", "NETKIT",
+                "XDP_SOCKETS", "NET_SCH_FQ", "TCP_CONG_BBR"))
+            config.write_text(base)
+            with self.assertRaises(RuntimeError):
+                kernel.export_kernel_config(tree, tree / "export.config", "test")
+            complete = base + "CONFIG_NFT_QUEUE=m\nCONFIG_NETFILTER_NETLINK_QUEUE=m\n"
+            config.write_text(complete)
+            kernel.export_kernel_config(tree, tree / "export.config", "test")
+            for line in ("CONFIG_NFT_QUEUE=m\n", "CONFIG_NETFILTER_NETLINK_QUEUE=m\n", "CONFIG_DEBUG_INFO_BTF=y\n"):
+                config.write_text(complete.replace(line, ""))
+                with self.assertRaises(RuntimeError):
+                    kernel.export_kernel_config(tree, tree / "export.config", "test")
+
+    def test_locked_hashes_and_corrupt_cache(self):
+        pin = json.loads((ROOT / ".github/honk-source.json").read_text())
+        self.assertEqual(pin["core_commit"], "995a80cd87e780a2a4d63b75008dca70876857b4")
+        self.assertNotEqual(pin["source_tag"], "staging")
+        for asset in pin["assets"]:
+            self.assertRegex(asset["sha256"], r"^[0-9a-f]{64}$")
+        with tempfile.TemporaryDirectory() as directory:
+            tree = Path(directory)
+            cache = tree / "cache"
+            cache.mkdir()
+            path = cache / "asset.tar.gz"
+            path.write_bytes(b"verified data")
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            source.fetch_asset("https://invalid.example/asset", tree / "dl/asset.tar.gz", digest, cache)
+            for expected in ("SKIP", "0" * 64):
+                with self.assertRaises(RuntimeError):
+                    source.verify_hash(path, expected)
+            path.write_bytes(b"corrupt data")
+            with self.assertRaises(RuntimeError):
+                source.fetch_asset("https://invalid.example/asset", tree / "dl/asset.tar.gz", digest, cache)
+
+    def test_feed_workaround_is_narrow_and_idempotent(self):
+        with tempfile.TemporaryDirectory() as directory:
+            tree = Path(directory)
+            package = tree / "feeds/packages/net/miniupnpd"
+            patches = package / "patches"
+            patches.mkdir(parents=True)
+            makefile = package / "Makefile"
+            makefile.write_text("PKG_VERSION:=2.3.11\nPKG_HASH:=91994b127da735b2c97f19992e34420648c0e8c4ace8a4bcb0596e7685c48678\n")
+            stale = patches / "020-descr-filter-fix.patch"
+            stale.write_bytes(b"unknown upstream change")
+            with self.assertRaises(RuntimeError):
+                compat.patch(tree)
+            self.assertTrue(stale.exists())
+            with mock.patch.dict(compat.STALE_PATCHES, {stale.name: hashlib.sha256(stale.read_bytes()).hexdigest()}):
+                self.assertEqual(compat.patch(tree), [stale.name])
+                self.assertEqual(compat.patch(tree), [])
+            stale.write_bytes(b"new upstream fix")
+            makefile.write_text("PKG_VERSION:=2.3.12\n")
+            self.assertEqual(compat.patch(tree), [])
+            self.assertTrue(stale.exists())
+
+    def test_target_and_release_isolation(self):
+        targets = json.loads((ROOT / ".github/targets.json").read_text())["targets"]
+        test = next(item for item in targets if item["branch"] == "test")
+        self.assertEqual(test["upstream_branch"], "master")
+        self.assertFalse(test["automatic"])
+        master = next(item for item in targets if item["branch"] == "master")
+        self.assertEqual(master["config_file"], "configs/immortalwrt.config")
+        self.assertEqual(master["diy_p2_sh"], "diy-part2-daed.sh")
+        self.assertNotIn("/etc/honk", (ROOT / "files/lib/upgrade/keep.d/my-immortalwrt").read_text().splitlines())
+        workflow = yaml.safe_load((ROOT / ".github/workflows/openwrt-builder.yml").read_text())
+        steps = {step["name"]: step for step in workflow["jobs"]["build"]["steps"]}
+        release = steps["Upload to release"]["with"]
+        self.assertIn("matrix.branch == 'test'", release["prerelease"])
+        self.assertIn("'false'", release["make_latest"])
+        self.assertIn("github.ref_name != 'test'", steps["Refresh README build table"]["if"])
+        packages = json.loads((ROOT / ".github/packages-honk.json").read_text())["packages"]
+        self.assertEqual({package["name"] for package in packages}, {"luci-app-lucky", "luci-app-watchdog"})
+
+
+if __name__ == "__main__":
+    unittest.main()

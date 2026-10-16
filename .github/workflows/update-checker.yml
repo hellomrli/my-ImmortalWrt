@@ -45,7 +45,7 @@ jobs:
                 "include": [
                     {"source": t["source"], "repo_url": t["repo_url"], "branch": t["branch"],
                      "upstream_branch": t.get("upstream_branch", t["branch"])}
-                    for t in targets
+                    for t in targets if t.get("automatic", True)
                 ]
             },
             separators=(",", ":"),

@@ -196,6 +196,7 @@ jobs:
         key: ${{ runner.os }}-ccache-${{ matrix.source }}-${{ matrix.branch }}-${{ github.run_id }}
         restore-keys: |
           ${{ runner.os }}-ccache-${{ matrix.source }}-${{ matrix.branch }}-
+          ${{ matrix.branch == 'test' && format('{0}-ccache-{1}-master-', runner.os, matrix.source) || '' }}
 
     - name: Bound ccache size
       run: |
@@ -276,6 +277,12 @@ jobs:
         go test -race ./...
         go vet ./...
 
+    - name: Test Honk profile guards
+      if: matrix.branch == 'test'
+      run: |
+        python3 .github/scripts/test-honk-integration.py
+        python3 .github/scripts/test-iptv-integration.py
+
     - name: Load custom configuration
       env:
         # Read-only use: resolving the rolling dae-src/daed-src release assets
@@ -343,6 +350,9 @@ jobs:
           echo "::error::Unused Ruby packages are still selected."
           exit 1
         fi
+        if [ "${{ matrix.branch }}" = test ]; then
+          python3 "$GITHUB_WORKSPACE/.github/scripts/check-honk-profile.py" "$PWD"
+        else
         echo "Checking kenzok8/openwrt-daede package selection..."
         kenzok_dae_makefile="package/dae/dae/Makefile"
         kenzok_daed_makefile="package/dae/daed/Makefile"
@@ -381,6 +391,7 @@ jobs:
         grep -E '^(PKG_NAME|PKG_VERSION|PKG_RELEASE):=' "$kenzok_dae_makefile"
         grep -E '^(PKG_NAME|PKG_VERSION|PKG_RELEASE):=' "$kenzok_daed_makefile"
         grep -E '^(PKG_NAME|PKG_VERSION|PKG_RELEASE):=' "$kenzok_luci_makefile"
+        fi
         if ! grep -qx '# CONFIG_GOLANG_BUILD_BOOTSTRAP is not set' .config ||
            ! grep -q '^CONFIG_GOLANG_EXTERNAL_BOOTSTRAP_ROOT="/' .config; then
           echo "::error::The external Go bootstrap was dropped by defconfig; golang-bootstrap would rebuild Go from 1.4."
@@ -749,6 +760,15 @@ jobs:
           echo "::error::Unused Ruby packages are still present in the firmware."
           exit 1
         fi
+        if [ "${{ matrix.branch }}" = test ]; then
+          python3 "$GITHUB_WORKSPACE/.github/scripts/check-honk-profile.py" ../../../.. --manifest "$manifest"
+          for pkg in honk luci-app-honk kmod-nft-queue kmod-nfnetlink-queue; do
+            package_file="$(find ../../../packages -type f -name "${pkg}-*.apk" -print -quit)"
+            [ -n "$package_file" ] || { echo "::error::No installable APK for $pkg"; exit 1; }
+            cp "$package_file" .
+            sha256sum "$(basename "$package_file")" >> sha256sums
+          done
+        else
         echo "Checking kenzok8/openwrt-daede versions in firmware manifest..."
         kenzok_dae_version="$(sed -n 's/^PKG_VERSION:=//p' ../../../../package/dae/dae/Makefile | head -n 1)"
         kenzok_daed_version="$(sed -n 's/^PKG_VERSION:=//p' ../../../../package/dae/daed/Makefile | head -n 1)"
@@ -769,6 +789,7 @@ jobs:
           echo "::error::Firmware manifest still contains old official daed/LuCI packages."
           grep -E '^(luci-app-daed|daed-(geoip|geosite))[[:space:]]' "$manifest"
           exit 1
+        fi
         fi
         fi
         rm -rf packages
@@ -800,6 +821,25 @@ jobs:
         echo "release_tag=${{ matrix.source }}-${{ matrix.branch }}-$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
         if [ "${{ matrix.branch }}" = iptv ]; then
           python3 "$GITHUB_WORKSPACE/.github/scripts/iptv-release-notes.py" > release.txt
+          echo "status=success" >> "$GITHUB_OUTPUT"
+        elif [ "${{ matrix.branch }}" = test ]; then
+          cat > release.txt <<'NOTES'
+        # Honk test firmware (ImmortalWrt upstream master)
+
+        Experimental x86_64/PVE image, separate from the production master releases.
+        Replaces dae/daed/luci-app-daede with Honk + luci-app-honk/Doona.
+        Includes matching kmod-nft-queue and kmod-nfnetlink-queue, verified against the final kernel config.
+        Keeps 192.168.50.1, dual AdGuardHome, dnsmasq DHCP/local DNS, Lucky, Watchdog and F2FS recovery support.
+
+        Honk core and Doona use SHA256-locked upstream release binaries/assets; the OpenWrt packages and kernel modules are built for this firmware.
+        Source commits and hashes are attached in immortalwrt-test_packages.txt.
+        Fresh installs leave Honk disabled. Preserved Honk configuration/state is not overwritten or automatically enabled.
+        The previously migrated NFQUEUE-off configuration stays off; enable NFQUEUE manually only after checking the modules.
+        Do not run daed and Honk together. Back up configuration and the VM disk before any upgrade.
+
+        Recommended image: squashfs-combined-efi.img.gz. This workflow does not flash a router.
+        Documentation: https://github.com/hellomrli/my-ImmortalWrt/blob/test/docs/honk-test.md
+        NOTES
           echo "status=success" >> "$GITHUB_OUTPUT"
         else
         touch release.txt
@@ -851,6 +891,9 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         tag_name: ${{ steps.tag.outputs.release_tag }}
+        target_commitish: ${{ github.sha }}
+        prerelease: ${{ matrix.branch == 'test' }}
+        make_latest: ${{ matrix.branch == 'test' && 'false' || 'legacy' }}
         body_path: release.txt
         files: ${{ env.FIRMWARE }}/*
 
@@ -877,7 +920,7 @@ jobs:
         key: commitHash_${{ matrix.source }}_${{ matrix.branch }}_${{ env.SOURCE_SHA }}
 
     - name: Refresh README build table
-      if: steps.organize.outputs.status == 'success' && steps.tag.outputs.status == 'success' && steps.release.outcome == 'success' && !cancelled()
+      if: matrix.branch != 'test' && github.ref_name != 'test' && steps.organize.outputs.status == 'success' && steps.tag.outputs.status == 'success' && steps.release.outcome == 'success' && !cancelled()
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: gh workflow run update-readme-build-table.yml --repo="${{ github.repository }}" --ref="${{ github.ref_name }}"
@@ -896,7 +939,7 @@ jobs:
 
   cleanup-runs:
     needs: build
-    if: always()
+    if: always() && github.ref_name != 'test'
     runs-on: ubuntu-24.04
     permissions:
       actions: write

@@ -18,10 +18,15 @@ DNS 分流**，并保留常用管理、QoS、UPnP、SFTP 和虚拟化组件。�
 原 master 的软件选择、网络配置和预置文件保持不变；`openwrt-25.12` 已停止构建。
 `iptv` 是独立固件目标，面向 `192.168.50.250` 的专用 IPTV 转发设备，详见 [IPTV 说明](docs/iptv.md)。
 
+本仓库的 **`test` Git 分支**额外提供 Honk 实验固件：同样基于上游 master，移除 dae/daed/daede，
+替换为 Honk + Doona，并编入 NFQUEUE 模块；保留双 AdGuardHome、dnsmasq DHCP 和原网络基线。
+仅手动构建、单独预发布，不替换正式 master 固件。详见 [Honk test 说明](docs/honk-test.md)。
+
 | 固件 | 上游分支 | 推荐下载 |
 | --- | --- | --- |
 | `immortalwrt-master` | ImmortalWrt `master` | `squashfs-combined-efi.img.gz` |
 | `immortalwrt-iptv` | ImmortalWrt `master`，IPTV 专用配置 | `squashfs-combined-efi.img.gz` |
+| `immortalwrt-test` | ImmortalWrt `master`，Honk + NFQUEUE 测试配置 | `squashfs-combined-efi.img.gz` |
 
 ## 当前构建概览
 
@@ -90,17 +95,20 @@ DNS 分流**，并保留常用管理、QoS、UPnP、SFTP 和虚拟化组件。�
 ```text
 LAN clients
   ↓ DNS :53
-dnsmasq
-  ↓ daed 透明 DNS 接管 / 分流（实机配置）
-daed DNS routing
+daed 透明 DNS 接管 / DNS routing（test 固件改用 Honk）
   ├─ 国内 / private 域名 → ADH-direct :50530 → ISP DNS
   └─ 国外 / fallback    → ADH-proxy  :50531 → 经代理的 DoH
                                             └─ 上游失败 → ADH-direct
+
+.lan / 本地反查 → dnsmasq；DHCP 仍由 dnsmasq 提供
 ```
+
+实机已迁移配置中，普通 DNS 被透明核心先行接管，不以 dnsmasq 为必经前置。dnsmasq 监听 53
+不代表普通查询都经过它；全新固件仍需配置并启用代理核心，不能把未初始化模板视作已迁移状态。
 
 | 组件 | 地址 | 端口 | 用途 |
 | --- | --- | ---: | --- |
-| dnsmasq | LAN / loopback | 53 | LAN DNS 入口 |
+| dnsmasq | LAN / loopback | 53 | DHCP / 本地域名、未被透明接管的 DNS |
 | ADH-direct DNS | `127.0.0.1` / `::1` | 50530 | 国内 DNS 后端 |
 | ADH-proxy DNS | `127.0.0.1` / `::1` | 50531 | 国外 DNS 后端 |
 | ADH-direct Web | `127.0.0.1`（首次启动） | 50080 | 设置认证前仅本机可访问 |
