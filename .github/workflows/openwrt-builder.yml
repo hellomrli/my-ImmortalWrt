@@ -762,8 +762,14 @@ jobs:
         fi
         if [ "${{ matrix.branch }}" = test ]; then
           python3 "$GITHUB_WORKSPACE/.github/scripts/check-honk-profile.py" ../../../.. --manifest "$manifest"
+          # Kernel modules are in the target repository, not the per-feed repositories.
           for pkg in honk luci-app-honk kmod-nft-queue kmod-nfnetlink-queue; do
-            package_file="$(find ../../../packages -type f -name "${pkg}-*.apk" -print -quit)"
+            package_file=""
+            for package_dir in ./packages ../../../packages; do
+              [ -d "$package_dir" ] || continue
+              package_file="$(find "$package_dir" -type f -name "${pkg}-*.apk" -print -quit)"
+              [ -z "$package_file" ] || break
+            done
             [ -n "$package_file" ] || { echo "::error::No installable APK for $pkg"; exit 1; }
             cp "$package_file" .
             sha256sum "$(basename "$package_file")" >> sha256sums
@@ -803,6 +809,20 @@ jobs:
         find . -maxdepth 1 -type f -printf '%f\n' | sort
         echo "FIRMWARE=$PWD" >> $GITHUB_ENV
         echo "status=success" >> $GITHUB_OUTPUT
+
+    - name: Preserve unpublished test firmware on organize failure
+      uses: actions/upload-artifact@v4
+      if: failure() && matrix.branch == 'test' && steps.compile.outputs.status == 'success' && steps.organize.outcome == 'failure'
+      with:
+        name: unpublished-test-firmware_${{ github.run_id }}
+        path: |
+          openwrt/bin/targets
+          openwrt/.config
+          openwrt/package-provenance.txt
+          openwrt/build_dir/target-*/linux-x86_64/linux-*/.config
+        include-hidden-files: true
+        retention-days: 7
+        if-no-files-found: warn
 
     - name: Upload firmware
       uses: actions/upload-artifact@v4

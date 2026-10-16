@@ -4,8 +4,10 @@
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
 import shutil
+import subprocess
 import tempfile
 import unittest
 from unittest import mock
@@ -46,6 +48,66 @@ class HonkTests(unittest.TestCase):
         manifest = tree / "firmware.manifest"
         manifest.write_text("".join(f"{name} - 2026.10.16-r1\n" for name in packages))
         return manifest
+
+    def organize(self, directory, *, missing=None, per_feed=True):
+        tree = directory / "openwrt"
+        tree.mkdir()
+        manifest = self.stage(tree)
+        target = tree / "bin/targets/x86/64"
+        target.mkdir(parents=True)
+        manifest.rename(target / "immortalwrt-x86-64-generic.manifest")
+        image = target / "immortalwrt-x86-64-generic-squashfs-combined.img.gz"
+        image.write_bytes(b"test firmware image")
+        (target / "sha256sums").write_text(f"{hashlib.sha256(image.read_bytes()).hexdigest()} *{image.name}\n")
+        packages = {}
+        for name in ("honk", "luci-app-honk", "kmod-nft-queue", "kmod-nfnetlink-queue"):
+            repository = target / "packages"
+            if per_feed and not name.startswith("kmod-"):
+                repository = tree / "bin/packages/x86_64/honk"
+            repository.mkdir(parents=True, exist_ok=True)
+            filename = f"{name}-2026.10.16-r1.apk"
+            contents = f"fixture for {name}\n".encode()
+            packages[filename] = contents
+            if name != missing:
+                (repository / filename).write_bytes(contents)
+        config = tree / "build_dir/target-x86_64/linux-x86_64/linux-6.18/.config"
+        config.parent.mkdir(parents=True)
+        config.write_text("".join(f"CONFIG_{name}=y\n" for name in (
+            "X86_64", "BPF_SYSCALL", "CGROUP_BPF", "DEBUG_INFO_BTF", "NETKIT",
+            "XDP_SOCKETS", "NET_SCH_FQ", "TCP_CONG_BBR", "NFT_QUEUE", "NETFILTER_NETLINK_QUEUE")))
+        workflow = yaml.safe_load((ROOT / ".github/workflows/openwrt-builder.yml").read_text())
+        script = next(step["run"] for step in workflow["jobs"]["build"]["steps"]
+                      if step["name"] == "Organize files")
+        script = script.replace("${{ matrix.branch }}", "test").replace("${{ matrix.source }}", "immortalwrt")
+        env = dict(os.environ, GITHUB_WORKSPACE=str(ROOT), GITHUB_ENV=str(directory / "github-env"),
+                   GITHUB_OUTPUT=str(directory / "github-output"))
+        result = subprocess.run(["bash", "-e", "-o", "pipefail", "-c", script], cwd=directory,
+                                env=env, text=True, capture_output=True, timeout=30)
+        return result, target, packages
+
+    def test_organize_collects_target_and_feed_apks(self):
+        for per_feed in (True, False):
+            with self.subTest(per_feed=per_feed), tempfile.TemporaryDirectory() as directory:
+                result, target, packages = self.organize(Path(directory), per_feed=per_feed)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                for filename, contents in packages.items():
+                    self.assertEqual((target / filename).read_bytes(), contents)
+                checksums = subprocess.run(["sha256sum", "-c", "sha256sums"], cwd=target,
+                                           text=True, capture_output=True, timeout=10)
+                self.assertEqual(checksums.returncode, 0, checksums.stdout + checksums.stderr)
+                self.assertEqual(len((target / "sha256sums").read_text().splitlines()), 5)
+                self.assertFalse((target / "packages").exists())
+                self.assertIn("CONFIG_NFT_QUEUE=y", (target / "immortalwrt-test_kernel.config").read_text())
+                self.assertIn("status=success", (Path(directory) / "github-output").read_text())
+
+    def test_organize_rejects_missing_nfqueue_apks(self):
+        for missing in ("kmod-nft-queue", "kmod-nfnetlink-queue"):
+            with self.subTest(missing=missing), tempfile.TemporaryDirectory() as directory:
+                result, target, _ = self.organize(Path(directory), missing=missing)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(f"::error::No installable APK for {missing}", result.stdout)
+                self.assertFalse((Path(directory) / "github-output").exists())
+                self.assertTrue((target / "packages").is_dir())
 
     def test_profile_and_manifest(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -149,6 +211,13 @@ class HonkTests(unittest.TestCase):
         self.assertIn("matrix.branch == 'test'", release["prerelease"])
         self.assertIn("'false'", release["make_latest"])
         self.assertIn("github.ref_name != 'test'", steps["Refresh README build table"]["if"])
+        recovery = steps["Preserve unpublished test firmware on organize failure"]
+        self.assertIn("matrix.branch == 'test'", recovery["if"])
+        self.assertIn("steps.compile.outputs.status == 'success'", recovery["if"])
+        self.assertIn("steps.organize.outcome == 'failure'", recovery["if"])
+        self.assertEqual(recovery["with"]["name"], "unpublished-test-firmware_${{ github.run_id }}")
+        self.assertTrue(recovery["with"]["include-hidden-files"])
+        self.assertIn("openwrt/bin/targets", recovery["with"]["path"].splitlines())
         packages = json.loads((ROOT / ".github/packages-honk.json").read_text())["packages"]
         self.assertEqual({package["name"] for package in packages}, {"luci-app-lucky", "luci-app-watchdog"})
 
