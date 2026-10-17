@@ -25,8 +25,8 @@ class IntegrationTests(unittest.TestCase):
     def test_target_selection_and_upstream(self):
         targets = json.loads((ROOT / '.github/targets.json').read_text())['targets']
         self.assertEqual([t['branch'] for t in targets], ['master', 'iptv', 'test'])
-        self.assertEqual(targets[0]['config_file'], 'configs/immortalwrt.config')
-        self.assertEqual(targets[0]['diy_p2_sh'], 'diy-part2-daed.sh')
+        self.assertEqual(targets[0]['config_file'], 'configs/honk.config')
+        self.assertEqual(targets[0]['diy_p2_sh'], 'diy-part2-honk.sh')
         self.assertEqual(targets[1]['upstream_branch'], 'master')
         script = matrix_script('openwrt-builder.yml', 'Generate build matrix')
         for selection, want in [('all', ['master', 'iptv', 'test']), ('iptv', ['iptv']), ('["master"]', ['master']), ('test', ['test'])]:

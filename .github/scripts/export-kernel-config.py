@@ -33,7 +33,7 @@ def export_kernel_config(tree: Path, output: Path, profile: str = "master") -> N
     }
     if profile == "iptv":
         required = {key: required[key] for key in ("CONFIG_X86_64", "CONFIG_NET_SCH_FQ", "CONFIG_TCP_CONG_BBR")}
-    elif profile == "test":
+    elif profile in ("test", "honk"):
         required.update({
             "CONFIG_NFT_QUEUE": ("y", "m"),
             "CONFIG_NETFILTER_NETLINK_QUEUE": ("y", "m"),
@@ -50,7 +50,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("tree", type=Path, help="OpenWrt source tree")
     parser.add_argument("output", type=Path, help="Release attachment path")
-    parser.add_argument("--profile", choices=("master", "iptv", "test"), default="master")
+    parser.add_argument("--profile", choices=("master", "iptv", "test", "honk"), default="master")
     args = parser.parse_args()
     export_kernel_config(args.tree, args.output, args.profile)
 

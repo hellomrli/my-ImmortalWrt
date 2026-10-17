@@ -1,5 +1,5 @@
 #!/bin/bash
-# Test-only master profile: keep the network baseline, replace dae/daed with Honk.
+# Production master profile: keep the network baseline, replace dae/daed with Honk.
 set -euo pipefail
 
 repo_root="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
@@ -61,10 +61,15 @@ path.write_text('\n'.join(lines) + '\n')
 PY
 
 mkdir -p package/base-files/files/etc
+if [ "${TARGET_BRANCH:-master}" = test ]; then
+    BUILD_DESC="TEST: ImmortalWrt master x86_64 for PVE, default IP 192.168.50.1"
+else
+    BUILD_DESC="ImmortalWrt master x86_64 for PVE (Honk), default IP 192.168.50.1"
+fi
 cat > package/base-files/files/etc/openwrt_release_custom <<RELEASE
 BUILD_DATE="$(date '+%Y%m%d%H%M')"
 BUILD_REPO="hellomrli/my-ImmortalWrt"
-BUILD_DESC="TEST: ImmortalWrt master x86_64 for PVE, default IP 192.168.50.1"
+BUILD_DESC="${BUILD_DESC}"
 BUILD_PLUGINS="Honk+Doona+NFQUEUE+Dual-AdGuardHome+Lucky+Watchdog+SFTP"
 RELEASE
 cat package-provenance.txt

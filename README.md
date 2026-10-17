@@ -9,24 +9,24 @@
 </div>
 
 面向 x86_64 软路由 / PVE / QEMU 的 ImmortalWrt 固件构建仓库。固件按实际路由器
-`192.168.50.1` 的软件结构整理，核心是 **dae / daed 双后端透明代理 + dnsmasq + 双 AdGuardHome
-DNS 分流**，并保留常用管理、QoS、UPnP、SFTP 和虚拟化组件。当前构建选择
-`luci-app-daede` 的 dae 变体，同时包含 `dae` 和 `daed`；实机使用 **daed**，由面板维护
-配置。构建选项不代表保留配置升级后的运行后端，上游默认值不做本地修改。
+`192.168.50.1` 的软件结构整理，核心是 **Honk + Doona 透明代理 + dnsmasq + 双 AdGuardHome
+DNS 分流**，并保留常用管理、QoS、UPnP、SFTP 和虚拟化组件。master 固件已用 Honk 替换
+`dae` / `daed` / `luci-app-daede`，并编入 NFQUEUE 内核模块。构建选项不代表保留配置升级后的
+运行状态，上游默认值不做本地修改。
 
 构建目标为 **master** 和 **iptv**，都使用 ImmortalWrt 上游最新 `master` 源码。
-原 master 的软件选择、网络配置和预置文件保持不变；`openwrt-25.12` 已停止构建。
-`iptv` 是独立固件目标，面向 `192.168.50.250` 的专用 IPTV 转发设备，详见 [IPTV 说明](docs/iptv.md)。
+master 固件的软件选择、网络配置和预置文件保持不变，仅把代理核心切换为 Honk + Doona；
+`openwrt-25.12` 已停止构建。`iptv` 是独立固件目标，面向 `192.168.50.250` 的专用 IPTV
+转发设备，详见 [IPTV 说明](docs/iptv.md)。
 
-本仓库的 **`test` Git 分支**额外提供 Honk 实验固件：同样基于上游 master，移除 dae/daed/daede，
-替换为 Honk + Doona，并编入 NFQUEUE 模块；保留双 AdGuardHome、dnsmasq DHCP 和原网络基线。
-仅手动构建、单独预发布，不替换正式 master 固件。详见 [Honk test 说明](docs/honk-test.md)。
+`test` Git 分支保留为 Honk 预发布通道：仅手动构建、单独预发布，不替换正式 master 固件。
+详见 [Honk 说明](docs/honk-test.md)。
 
 | 固件 | 上游分支 | 推荐下载 |
 | --- | --- | --- |
-| `immortalwrt-master` | ImmortalWrt `master` | `squashfs-combined-efi.img.gz` |
+| `immortalwrt-master` | ImmortalWrt `master`，Honk + NFQUEUE | `squashfs-combined-efi.img.gz` |
 | `immortalwrt-iptv` | ImmortalWrt `master`，IPTV 专用配置 | `squashfs-combined-efi.img.gz` |
-| `immortalwrt-test` | ImmortalWrt `master`，Honk + NFQUEUE 测试配置 | `squashfs-combined-efi.img.gz` |
+| `immortalwrt-test` | ImmortalWrt `master`，Honk 手动预发布 | `squashfs-combined-efi.img.gz` |
 
 ## 当前构建概览
 
@@ -61,8 +61,8 @@ DNS 分流**，并保留常用管理、QoS、UPnP、SFTP 和虚拟化组件。�
 
 - 基于 ImmortalWrt x86_64，适合 PVE、QEMU 和常规 x86 软路由。
 - 默认 LAN IP 为 `192.168.50.1`，避免和常见上级路由 `192.168.1.1` 冲突。
-- 同时内置 `dae` 与 `daed`，通过 `luci-app-daede` 统一管理和切换后端。
-- 内置 `dnsmasq + dae / daed + 双 AdGuardHome`；实机 DNS 分流由 daed 管理。
+- 内置 `honk` + `luci-app-honk`（Doona），并编入 `kmod-nft-queue` / `kmod-nfnetlink-queue`。
+- 内置 `dnsmasq + Honk + 双 AdGuardHome`；DNS 分流由 Honk 管理。
 - 双 AdGuardHome 以独立 procd 服务运行，不使用 `luci-app-adguardhome` 管理。
 - 预装 `openssh-sftp-server`，方便通过 SFTP / SCP 传递文件。
 - 预装 `qemu-ga`，适合 PVE / QEMU 虚拟机管理、关机和状态识别。
@@ -77,13 +77,14 @@ DNS 分流**，并保留常用管理、QoS、UPnP、SFTP 和虚拟化组件。�
 
 ### LuCI / 管理
 
-`luci-app-daede`（统一管理 `dae` / `daed` 双后端）、`luci-app-firewall`、`luci-app-lucky`、
+`luci-app-honk`（Doona）、`luci-app-firewall`、`luci-app-lucky`、
 `luci-app-package-manager`、`luci-app-sqm`、`luci-app-upnp`、`luci-app-watchdog`、中文语言包。
 
 ### DNS / 代理
 
-`dae`、`daed`（均来自 `kenzok8/openwrt-daede`）、`adguardhome`（官方包，预置
-`adh-direct` / `adh-proxy` 双实例）、`dnsmasq-full`、`v2ray-geoip` / `v2ray-geosite`。
+`honk`、`luci-app-honk`（`kenzok8/openwrt-honk` 固定提交，Honk core / Doona 使用 SHA256
+锁定的上游 release 资源）、`adguardhome`（官方包，预置 `adh-direct` / `adh-proxy` 双实例）、
+`dnsmasq-full`、`v2ray-geoip` / `v2ray-geosite`。
 
 ### 系统工具
 
@@ -95,7 +96,7 @@ DNS 分流**，并保留常用管理、QoS、UPnP、SFTP 和虚拟化组件。�
 ```text
 LAN clients
   ↓ DNS :53
-daed 透明 DNS 接管 / DNS routing（test 固件改用 Honk）
+Honk 透明 DNS 接管 / DNS routing
   ├─ 国内 / private 域名 → ADH-direct :50530 → ISP DNS
   └─ 国外 / fallback    → ADH-proxy  :50531 → 经代理的 DoH
                                             └─ 上游失败 → ADH-direct
@@ -113,7 +114,6 @@ daed 透明 DNS 接管 / DNS routing（test 固件改用 Honk）
 | ADH-proxy DNS | `127.0.0.1` / `::1` | 50531 | 国外 DNS 后端 |
 | ADH-direct Web | `127.0.0.1`（首次启动） | 50080 | 设置认证前仅本机可访问 |
 | ADH-proxy Web | `127.0.0.1`（首次启动） | 50081 | 设置认证前仅本机可访问 |
-| daed Web | `0.0.0.0` / `::` | 2023 | daed 管理 |
 
 固件使用 ImmortalWrt 官方 `packages/net/adguardhome` 提供的 `/usr/bin/AdGuardHome`
 二进制，通过 overlay 预置两个 procd 服务和两个 symlink（供 dae 按进程名区分 direct/proxy）：
@@ -138,13 +138,13 @@ ssh -L 50080:127.0.0.1:50080 -L 50081:127.0.0.1:50081 root@192.168.50.1
 bcrypt 哈希时，可在装有 Apache 工具的电脑运行 `htpasswd -nBC 10 root`，取冒号后的哈希填入
 YAML 的 `users`。
 
-`dae` / `daed` / `luci-app-daede` 按上游原样编译，不再叠加本地补丁。实机运行 daed，
-DNS 分流（`adh_direct` / `adh_proxy`）和节点配置保存在 `/etc/daed/wing.db`，由 daed 面板维护，
-sysupgrade 时随 keep.d 保留。`luci-app-daede` 的 dae 表单仍是上游默认的
-`cndns` / `fallbackdns`，只在切换到 dae 后端并保存表单时才会生效。
+`honk` / `luci-app-honk` 由构建脚本固定到上游提交，Honk core 和 Doona 使用 SHA256 锁定的
+release 资源。DNS 分流（`adh_direct` / `adh_proxy`）和节点配置由 Honk 面板维护，
+`/etc/config/honk` 与 `/etc/honk/` 在 sysupgrade 时随 keep.d 保留。旧 dae / daed 配置
+仍保留在设备上用于回滚，但新固件不再包含其程序。
 
-详细方案见 [`docs/dnsmasq-daed-dual-adh.md`](docs/dnsmasq-daed-dual-adh.md)。当前新装模板的
-ADH-proxy 使用四个 IPv4 DoH 上游、`upstream_timeout: 3s`，并暂时禁用国外 AAAA；
+daed 时代的 DNS/ADH 方案仍可参考 [`docs/dnsmasq-daed-dual-adh.md`](docs/dnsmasq-daed-dual-adh.md)。
+当前新装模板的 ADH-proxy 使用四个 IPv4 DoH 上游、`upstream_timeout: 3s`，并暂时禁用国外 AAAA；
 ADH-direct 保留双栈。代理 DNS 上游失败时会兜底到本机 ADH-direct，查询随后走 ISP 明文
 DNS，不再保证全程加密，也不保证国外域名解析或代理业务恢复。3s 不是端到端耗时上限。
 保留配置升级不会自动采用这些新默认；已有设备需按方案文档备份后自行选择是否更新。
@@ -157,11 +157,11 @@ DNS，不再保证全程加密，也不保证国外域名解析或代理业务�
 
 | 包 | 镜像路径 | 上游 |
 | --- | --- | --- |
-| `dae` / `daed` / `luci-app-daede` | `openwrt-daede` | `kenzok8/openwrt-daede` |
+| `honk` / `luci-app-honk` | `openwrt-honk` | `kenzok8/openwrt-honk`（固定提交） |
 | `lucky` / `luci-app-lucky` | `luci-app-lucky` | `gdy666/luci-app-lucky`（LuCI 界面）+ [官方文件服务](https://release.66666.host/)（核心包） |
 | `watchdog` / `luci-app-watchdog` | `luci-app-watchdog` | `sirpdboy/luci-app-watchdog` |
 
-包清单是 [`.github/packages.json`](.github/packages.json)，由
+包清单是 [`.github/packages-honk.json`](.github/packages-honk.json)，由
 [`.github/scripts/fetch-packages.py`](.github/scripts/fetch-packages.py) 在构建时落地：
 
 - **只抽取清单列出的子目录**，不整仓克隆进 `package/`。镜像同时保存了本固件不编译的包
@@ -171,13 +171,12 @@ DNS，不再保证全程加密，也不保证国外域名解析或代理业务�
 - 落地后校验每个包的必需 `Makefile`，并把实际来源和 commit 写入 `package-provenance.txt`，
   随 Release 发布为 `*_packages.txt`。
 
-`dae` / `daed` 的**源码包**不在镜像仓库里：上游把它们发布在滚动 release `dae-src` / `daed-src` 上，
-且只保留最新 3 个资产，所以镜像里的 `PKG_SOURCE` 会在每次上游重组源码后被轮换删除，构建随即在下载
-阶段 404（2026-09-17 的失败即为此）。构建前由
-[`.github/scripts/pin-daede-source.py`](.github/scripts/pin-daede-source.py) 兜底：原 pin 还在就原样沿用，
-被删掉则改用该 release 最新资产并回写 `PKG_VERSION` / `PKG_RELEASE` / `PKG_SOURCE` / `PKG_HASH`，
-随后把 tar 包取进 `dl/`，校验 sha256、文件名内嵌的 12 位内容 id 和 Makefile 需要的目录结构
-（`core/` + `outbound/` + `quic-go/`，daed 为 `wing/`）。实际使用的 tar 包记入 `package-provenance.txt`。
+`honk` / `luci-app-honk` 的 OpenWrt 包装来自 `kenzok8/openwrt-honk` 的固定提交；
+Honk core 和 Doona 的二进制/资源来自上游 release，全部 SHA256 锁定，记录在
+[`.github/honk-source.json`](.github/honk-source.json)。构建前由
+[`.github/scripts/pin-honk-source.py`](.github/scripts/pin-honk-source.py) 校验并落地，
+要求固定的 commit/tag 和匹配的 SHA256，不接受 `SKIP` 或可漂移的 staging 资源。
+实际使用的资源与哈希记入 `package-provenance.txt`。
 
 **Lucky 的核心包从 3.x 起闭源**，走的是另一条路：`gdy666/lucky` 的 GitHub release 停在
 v2.27.2，新版本只在官方文件服务 [`release.66666.host`](https://release.66666.host/) 发布
@@ -331,9 +330,10 @@ overlay 文件不会遮蔽后续规则更新；`/etc/sysupgrade.conf` 留给你�
 
 | 数据 | 实际路径 | 覆盖方式 |
 | --- | --- | --- |
-| dae 配置 | `/etc/config/dae`、`/etc/dae/`（含 `config.dae`、`subscriptions`） | keep.d + 包 conffiles |
-| daed 数据库（节点/订阅/路由） | `/etc/config/daed`、`/etc/daed/`（含 `wing.db`） | keep.d + 包 conffiles |
-| daede 管理界面 | `/etc/config/daede` | keep.d + 包 conffiles |
+| Honk 配置/状态 | `/etc/config/honk`、`/etc/honk/` | keep.d |
+| 旧 dae 配置（回滚用） | `/etc/config/dae`、`/etc/dae/`（含 `config.dae`、`subscriptions`） | keep.d + 包 conffiles |
+| 旧 daed 数据库（回滚用） | `/etc/config/daed`、`/etc/daed/`（含 `wing.db`） | keep.d + 包 conffiles |
+| 旧 daede 管理界面（回滚用） | `/etc/config/daede` | keep.d + 包 conffiles |
 | Lucky | `/etc/config/lucky` + 数据目录 `/etc/config/lucky.daji/` | keep.d |
 | Watchdog | `/etc/config/watchdog` | keep.d |
 | 双 AdGuardHome 设置 | `/etc/AdGuardHome-direct.yaml`、`-proxy.yaml` | keep.d |
@@ -365,7 +365,7 @@ sysupgrade -c -k -b /tmp/backup-before-upgrade.tar.gz
 
 # 3. 验证压缩包可读，并抽查关键配置
 tar -tzf /tmp/backup-before-upgrade.tar.gz >/dev/null
-tar -tzf /tmp/backup-before-upgrade.tar.gz | grep -E '(^|/)etc/(config/(network|dhcp|firewall|dae|daed|daede|lucky|lucky\.daji)|dae/|daed/|AdGuardHome-(direct|proxy)\.yaml|shadow|passwd)'
+tar -tzf /tmp/backup-before-upgrade.tar.gz | grep -E '(^|/)etc/(config/(network|dhcp|firewall|honk|dae|daed|daede|lucky|lucky\.daji)|honk/|dae/|daed/|AdGuardHome-(direct|proxy)\.yaml|shadow|passwd)'
 sha256sum /tmp/backup-before-upgrade.tar.gz
 ```
 
@@ -401,7 +401,7 @@ sysupgrade -c -k -v /tmp/immortalwrt-x86-64-generic-squashfs-combined-efi.img.gz
 
 ```sh
 mount | grep -E ' /overlay |overlayfs:/overlay on / '
-sysupgrade -l | grep -E 'AdGuardHome-(direct|proxy)|etc/(dae|daed)|lucky\.daji'
+sysupgrade -l | grep -E 'AdGuardHome-(direct|proxy)|etc/(honk|dae|daed)|lucky\.daji'
 uci show network >/dev/null && uci show dhcp >/dev/null
 /etc/init.d/adh-direct status
 /etc/init.d/adh-proxy status
@@ -423,7 +423,7 @@ RAM——**先把配置备份到外部设备，再排查，期间不要重启**�
 
 - [ImmortalWrt](https://github.com/immortalwrt/immortalwrt)
 - [P3TERX/Actions-OpenWrt](https://github.com/P3TERX/Actions-OpenWrt)
-- [kenzok8/openwrt-daede](https://github.com/kenzok8/openwrt-daede)
+- [kenzok8/openwrt-honk](https://github.com/kenzok8/openwrt-honk)
 - [AdGuardHome](https://github.com/AdguardTeam/AdGuardHome)
 - [OpenWrt packages](https://github.com/openwrt/packages)
 - [gdy666/luci-app-lucky](https://github.com/gdy666/luci-app-lucky)

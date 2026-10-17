@@ -7,13 +7,14 @@
   ],
   "targets": [
     {
-      "label": "ImmortalWrt `master`",
+      "label": "ImmortalWrt `master`（Honk）",
       "source": "immortalwrt",
       "branch": "master",
+      "profile": "honk",
       "repo_url": "https://github.com/immortalwrt/immortalwrt",
-      "config_file": "configs/immortalwrt.config",
-      "diy_p1_sh": "diy-part1.sh",
-      "diy_p2_sh": "diy-part2-daed.sh"
+      "config_file": "configs/honk.config",
+      "diy_p1_sh": "diy-part1-honk.sh",
+      "diy_p2_sh": "diy-part2-honk.sh"
     },
     {
       "label": "ImmortalWrt `iptv`（上游 master）",
@@ -30,6 +31,7 @@
       "label": "ImmortalWrt `test` (Honk / upstream master)",
       "source": "immortalwrt",
       "branch": "test",
+      "profile": "honk",
       "upstream_branch": "master",
       "repo_url": "https://github.com/immortalwrt/immortalwrt",
       "config_file": "configs/honk.config",

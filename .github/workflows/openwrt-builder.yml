@@ -278,13 +278,14 @@ jobs:
         go vet ./...
 
     - name: Test Honk profile guards
-      if: matrix.branch == 'test'
+      if: matrix.profile == 'honk'
       run: |
         python3 .github/scripts/test-honk-integration.py
         python3 .github/scripts/test-iptv-integration.py
 
     - name: Load custom configuration
       env:
+        TARGET_BRANCH: ${{ matrix.branch }}
         # Read-only use: resolving the rolling dae-src/daed-src release assets
         # (see .github/scripts/pin-daede-source.py) needs the release metadata,
         # and the unauthenticated API limit is shared with other runners.
@@ -350,7 +351,7 @@ jobs:
           echo "::error::Unused Ruby packages are still selected."
           exit 1
         fi
-        if [ "${{ matrix.branch }}" = test ]; then
+        if [ "${{ matrix.profile }}" = honk ]; then
           python3 "$GITHUB_WORKSPACE/.github/scripts/check-honk-profile.py" "$PWD"
         else
         echo "Checking kenzok8/openwrt-daede package selection..."
@@ -760,7 +761,7 @@ jobs:
           echo "::error::Unused Ruby packages are still present in the firmware."
           exit 1
         fi
-        if [ "${{ matrix.branch }}" = test ]; then
+        if [ "${{ matrix.profile }}" = honk ]; then
           python3 "$GITHUB_WORKSPACE/.github/scripts/check-honk-profile.py" ../../../.. --manifest "$manifest"
           # Kernel modules are in the target repository, not the per-feed repositories.
           for pkg in honk luci-app-honk kmod-nft-queue kmod-nfnetlink-queue; do
@@ -803,18 +804,20 @@ jobs:
         # Ship the resolved third-party package sources with the firmware so a
         # released image can be traced back to exact mirror/upstream commits.
         cp -f ../../../../package-provenance.txt "${{ matrix.source }}-${{ matrix.branch }}_packages.txt" 2>/dev/null || true
+        profile="${{ matrix.profile }}"
+        [ -n "$profile" ] || profile="${{ matrix.branch }}"
         python3 "$GITHUB_WORKSPACE/.github/scripts/export-kernel-config.py" \
-          ../../../.. "${{ matrix.source }}-${{ matrix.branch }}_kernel.config" --profile "${{ matrix.branch }}"
+          ../../../.. "${{ matrix.source }}-${{ matrix.branch }}_kernel.config" --profile "$profile"
         echo "Published firmware files:"
         find . -maxdepth 1 -type f -printf '%f\n' | sort
         echo "FIRMWARE=$PWD" >> $GITHUB_ENV
         echo "status=success" >> $GITHUB_OUTPUT
 
-    - name: Preserve unpublished test firmware on organize failure
+    - name: Preserve unpublished firmware on organize failure
       uses: actions/upload-artifact@v4
-      if: failure() && matrix.branch == 'test' && steps.compile.outputs.status == 'success' && steps.organize.outcome == 'failure'
+      if: failure() && matrix.profile == 'honk' && steps.compile.outputs.status == 'success' && steps.organize.outcome == 'failure'
       with:
-        name: unpublished-test-firmware_${{ github.run_id }}
+        name: unpublished-firmware_${{ github.run_id }}
         path: |
           openwrt/bin/targets
           openwrt/.config
@@ -859,6 +862,23 @@ jobs:
 
         Recommended image: squashfs-combined-efi.img.gz. This workflow does not flash a router.
         Documentation: https://github.com/hellomrli/my-ImmortalWrt/blob/test/docs/honk-test.md
+        NOTES
+          echo "status=success" >> "$GITHUB_OUTPUT"
+        elif [ "${{ matrix.profile }}" = honk ]; then
+          cat > release.txt <<'NOTES'
+        # Honk 固件（ImmortalWrt 上游 master）
+
+        x86_64/PVE 正式镜像，使用 Honk + Doona 替代 dae/daed/luci-app-daede。
+        包含与最终内核配置匹配的 kmod-nft-queue 和 kmod-nfnetlink-queue。
+        保留 192.168.50.1、双 AdGuardHome、dnsmasq DHCP/本地 DNS、Lucky、Watchdog 和 F2FS 恢复支持。
+
+        Honk core 和 Doona 使用 SHA256 锁定的上游 release 二进制/资源；OpenWrt 包和内核模块随本固件构建。
+        源码提交与哈希附在 ${{ matrix.source }}-${{ matrix.branch }}_packages.txt 中。
+        全新安装默认不启用 Honk；保留的 Honk 配置/状态不会被覆盖或自动启用。
+        不要同时运行 daed 和 Honk。升级前备份配置和虚拟机磁盘。
+
+        推荐镜像：squashfs-combined-efi.img.gz。本工作流不会刷写路由器。
+        文档：https://github.com/hellomrli/my-ImmortalWrt/blob/main/docs/honk-test.md
         NOTES
           echo "status=success" >> "$GITHUB_OUTPUT"
         else

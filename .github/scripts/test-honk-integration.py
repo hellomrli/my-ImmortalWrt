@@ -78,7 +78,7 @@ class HonkTests(unittest.TestCase):
         workflow = yaml.safe_load((ROOT / ".github/workflows/openwrt-builder.yml").read_text())
         script = next(step["run"] for step in workflow["jobs"]["build"]["steps"]
                       if step["name"] == "Organize files")
-        script = script.replace("${{ matrix.branch }}", "test").replace("${{ matrix.source }}", "immortalwrt")
+        script = script.replace("${{ matrix.profile }}", "honk").replace("${{ matrix.branch }}", "master").replace("${{ matrix.source }}", "immortalwrt")
         env = dict(os.environ, GITHUB_WORKSPACE=str(ROOT), GITHUB_ENV=str(directory / "github-env"),
                    GITHUB_OUTPUT=str(directory / "github-output"))
         result = subprocess.run(["bash", "-e", "-o", "pipefail", "-c", script], cwd=directory,
@@ -97,7 +97,7 @@ class HonkTests(unittest.TestCase):
                 self.assertEqual(checksums.returncode, 0, checksums.stdout + checksums.stderr)
                 self.assertEqual(len((target / "sha256sums").read_text().splitlines()), 5)
                 self.assertFalse((target / "packages").exists())
-                self.assertIn("CONFIG_NFT_QUEUE=y", (target / "immortalwrt-test_kernel.config").read_text())
+                self.assertIn("CONFIG_NFT_QUEUE=y", (target / "immortalwrt-master_kernel.config").read_text())
                 self.assertIn("status=success", (Path(directory) / "github-output").read_text())
 
     def test_organize_rejects_missing_nfqueue_apks(self):
@@ -202,8 +202,9 @@ class HonkTests(unittest.TestCase):
         self.assertEqual(test["upstream_branch"], "master")
         self.assertFalse(test["automatic"])
         master = next(item for item in targets if item["branch"] == "master")
-        self.assertEqual(master["config_file"], "configs/immortalwrt.config")
-        self.assertEqual(master["diy_p2_sh"], "diy-part2-daed.sh")
+        self.assertEqual(master["profile"], "honk")
+        self.assertEqual(master["config_file"], "configs/honk.config")
+        self.assertEqual(master["diy_p2_sh"], "diy-part2-honk.sh")
         self.assertNotIn("/etc/honk", (ROOT / "files/lib/upgrade/keep.d/my-immortalwrt").read_text().splitlines())
         workflow = yaml.safe_load((ROOT / ".github/workflows/openwrt-builder.yml").read_text())
         steps = {step["name"]: step for step in workflow["jobs"]["build"]["steps"]}
@@ -211,11 +212,11 @@ class HonkTests(unittest.TestCase):
         self.assertIn("matrix.branch == 'test'", release["prerelease"])
         self.assertIn("'false'", release["make_latest"])
         self.assertIn("github.ref_name != 'test'", steps["Refresh README build table"]["if"])
-        recovery = steps["Preserve unpublished test firmware on organize failure"]
-        self.assertIn("matrix.branch == 'test'", recovery["if"])
+        recovery = steps["Preserve unpublished firmware on organize failure"]
+        self.assertIn("matrix.profile == 'honk'", recovery["if"])
         self.assertIn("steps.compile.outputs.status == 'success'", recovery["if"])
         self.assertIn("steps.organize.outcome == 'failure'", recovery["if"])
-        self.assertEqual(recovery["with"]["name"], "unpublished-test-firmware_${{ github.run_id }}")
+        self.assertEqual(recovery["with"]["name"], "unpublished-firmware_${{ github.run_id }}")
         self.assertTrue(recovery["with"]["include-hidden-files"])
         self.assertIn("openwrt/bin/targets", recovery["with"]["path"].splitlines())
         packages = json.loads((ROOT / ".github/packages-honk.json").read_text())["packages"]
