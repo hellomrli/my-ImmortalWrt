@@ -33,8 +33,9 @@ master 固件的软件选择、网络配置和预置文件保持不变，仅把�
 <!-- BUILD_TABLE_START -->
 | 构建目标 | 构建状态 | 最新版本 | 发布时间 | Release | 推荐下载 |
 |----------|----------|----------|----------|---------|----------|
-| ImmortalWrt `master` | 已发布 | `immortalwrt-master-2026.10.12-1629` | 2026-10-12 16:29 CST | [下载](https://github.com/hellomrli/my-ImmortalWrt/releases/tag/immortalwrt-master-2026.10.12-1629) | `squashfs-combined-efi.img.gz` |
+| ImmortalWrt `master`（Honk） | 已发布 | `immortalwrt-master-2026.10.18-0024` | 2026-10-18 00:24 CST | [下载](https://github.com/hellomrli/my-ImmortalWrt/releases/tag/immortalwrt-master-2026.10.18-0024) | `squashfs-combined-efi.img.gz` |
 | ImmortalWrt `iptv`（上游 master） | 已发布 | `immortalwrt-iptv-2026.10.16-1821` | 2026-10-16 18:21 CST | [下载](https://github.com/hellomrli/my-ImmortalWrt/releases/tag/immortalwrt-iptv-2026.10.16-1821) | `squashfs-combined-efi.img.gz` |
+| ImmortalWrt `test` (Honk / upstream master) | 已发布 | `immortalwrt-test-2026.10.17-0315` | 2026-10-17 03:15 CST | [下载](https://github.com/hellomrli/my-ImmortalWrt/releases/tag/immortalwrt-test-2026.10.17-0315) | `squashfs-combined-efi.img.gz` |
 
 > 此表由 GitHub Actions 自动更新；新 Release 发布后会同步最新版本和链接。
 <!-- BUILD_TABLE_END -->
