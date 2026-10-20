@@ -47,7 +47,7 @@ jobs:
       targets: ${{ steps.matrix.outputs.targets }}
     steps:
     - name: Checkout
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
       with:
         # Package Makefiles from cloned third-party repositories run during the
         # build; do not leave a repository write credential in git config.
@@ -124,7 +124,7 @@ jobs:
 
     steps:
     - name: Checkout
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
       with:
         # Package Makefiles from cloned third-party repositories run during the
         # build; do not leave a repository write credential in git config.
@@ -190,7 +190,7 @@ jobs:
     # ccache is content-addressed internally, so a stale entry is simply unused
     # rather than wrong, and editing .config no longer throws away a warm cache.
     - name: Restore ccache
-      uses: actions/cache/restore@v4
+      uses: actions/cache/restore@v6
       with:
         path: openwrt/.ccache
         key: ${{ runner.os }}-ccache-${{ matrix.source }}-${{ matrix.branch }}-${{ github.run_id }}
@@ -264,7 +264,7 @@ jobs:
         echo "version=${minor}${patch:+.$patch}" >> "$GITHUB_OUTPUT"
 
     - name: Install Go bootstrap
-      uses: actions/setup-go@v5
+      uses: actions/setup-go@v7
       with:
         go-version: ${{ steps.go-bootstrap.outputs.version }}
         cache: false
@@ -664,7 +664,7 @@ jobs:
     # Save even when the compile failed: a partially warmed ccache still makes
     # the next attempt materially faster.
     - name: Save ccache
-      uses: actions/cache/save@v4
+      uses: actions/cache/save@v6
       if: ${{ !cancelled() }}
       continue-on-error: true
       with:
@@ -689,7 +689,7 @@ jobs:
         } > build-diagnostics.txt
 
     - name: Upload build logs
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       if: failure()
       with:
         name: build-logs_${{ matrix.source }}_${{ matrix.branch }}
@@ -709,7 +709,7 @@ jobs:
       run: df -hT
 
     - name: Upload bin directory
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       if: steps.compile.outputs.status == 'success' && env.UPLOAD_BIN_DIR == 'true'
       with:
         name: OpenWrt_bin_${{ env.SOURCE_NAME }}_${{ env.BRANCH_NAME }}${{ env.FILE_DATE }}
@@ -836,7 +836,7 @@ jobs:
         echo "status=success" >> $GITHUB_OUTPUT
 
     - name: Preserve unpublished firmware on organize failure
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       if: failure() && matrix.profile == 'honk' && steps.compile.outputs.status == 'success' && steps.organize.outcome == 'failure'
       with:
         name: unpublished-firmware_${{ github.run_id }}
@@ -850,7 +850,7 @@ jobs:
         if-no-files-found: warn
 
     - name: Upload firmware
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       if: steps.organize.outputs.status == 'success' && !cancelled()
       with:
         name: OpenWrt_firmware_${{ env.SOURCE_NAME }}_${{ env.BRANCH_NAME }}${{ env.FILE_DATE }}
@@ -947,7 +947,7 @@ jobs:
 
     - name: Upload to release
       id: release
-      uses: softprops/action-gh-release@v2
+      uses: softprops/action-gh-release@v3
       if: steps.organize.outputs.status == 'success' && steps.tag.outputs.status == 'success' && !cancelled()
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -974,7 +974,7 @@ jobs:
           > ".commitHash/${{ matrix.source }}-${{ matrix.branch }}"
 
     - name: Save built-commit marker
-      uses: actions/cache/save@v4
+      uses: actions/cache/save@v6
       if: steps.mark.outcome == 'success' && !cancelled()
       continue-on-error: true
       with:
