@@ -60,6 +60,70 @@ class IntegrationTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 module.export_kernel_config(tree, tree / 'master.config')
 
+    def test_failed_build_logs_cover_all_stages_and_hidden_configs(self):
+        workflow = yaml.safe_load((ROOT / '.github/workflows/openwrt-builder.yml').read_text())
+        steps = {step['name']: step for step in workflow['jobs']['build']['steps']}
+        collect = steps['Collect build diagnostics']
+        self.assertEqual(collect['if'], 'failure()')
+        self.assertTrue(collect['continue-on-error'])
+        upload = steps['Upload build logs']
+        self.assertEqual(upload['if'], 'failure()')
+        self.assertTrue(upload['with']['include-hidden-files'])
+        self.assertEqual(upload['with']['retention-days'], 14)
+        self.assertEqual(set(upload['with']['path'].splitlines()), {
+            'build-diagnostics.txt', 'openwrt/logs', 'openwrt/.config',
+            'openwrt/feeds.conf.default', 'openwrt/package-provenance.txt',
+            'openwrt/build_dir/target-*/linux-x86_64/linux-*/.config',
+        })
+
+    def test_failed_build_diagnostics_handle_missing_and_modified_sources(self):
+        workflow = yaml.safe_load((ROOT / '.github/workflows/openwrt-builder.yml').read_text())
+        script = next(step['run'] for step in workflow['jobs']['build']['steps']
+                      if step['name'] == 'Collect build diagnostics')
+        with tempfile.TemporaryDirectory() as directory:
+            tree = Path(directory)
+            env = dict(os.environ, GITHUB_SHA='build-config-commit', SOURCE_SHA='upstream-commit')
+            output = tree / 'build-diagnostics.txt'
+
+            def collect():
+                result = subprocess.run(['bash', '-e', '-o', 'pipefail', '-c', script],
+                                        cwd=tree, env=env, text=True, capture_output=True, timeout=10)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                return output.read_text()
+
+            env.pop('SOURCE_SHA')
+            contents = collect()
+            self.assertIn('Build configuration commit: build-config-commit', contents)
+            self.assertIn('Upstream commit: unknown', contents)
+            revisions = {}
+            for name in ('openwrt', 'openwrt/feeds/packages'):
+                checkout = tree / name
+                checkout.mkdir(parents=True, exist_ok=True)
+
+                def git(*args):
+                    return subprocess.check_output(['git', '-C', str(checkout), *args],
+                                                   text=True, stderr=subprocess.STDOUT).strip()
+
+                git('init', '--quiet')
+                tracked = checkout / 'Makefile'
+                tracked.write_text('PKG_VERSION:=1\n')
+                git('add', 'Makefile')
+                git('-c', 'user.name=CI Test', '-c', 'user.email=ci@example.invalid',
+                    '-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', 'fixture')
+                revisions[name] = git('rev-parse', 'HEAD')
+                tracked.write_text('PKG_VERSION:=2\n')
+                (checkout / 'private-untracked.txt').write_text('do not collect\n')
+                (checkout / '.git/config').write_text(
+                    (checkout / '.git/config').read_text() +
+                    '\n[http "https://github.com/"]\n\textraheader = PRIVATE_TEST_CREDENTIAL\n')
+            env['SOURCE_SHA'] = 'upstream-commit'
+            contents = collect()
+            self.assertIn('Upstream commit: upstream-commit', contents)
+            for name, revision in revisions.items():
+                self.assertIn(f'\n{name}\n{revision}\n M Makefile', contents)
+            self.assertNotIn('PRIVATE_TEST_CREDENTIAL', contents)
+            self.assertNotIn('private-untracked.txt', contents)
+
     def test_cron_migration_is_idempotent_and_preserves_other_jobs(self):
         with tempfile.TemporaryDirectory() as directory:
             tree = Path(directory)

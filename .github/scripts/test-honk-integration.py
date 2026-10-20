@@ -196,6 +196,63 @@ class HonkTests(unittest.TestCase):
             self.assertEqual(compat.patch(tree), [])
             self.assertTrue(stale.exists())
 
+    def test_feed_workaround_preserves_refreshed_upstream_patches(self):
+        with tempfile.TemporaryDirectory() as directory:
+            tree = Path(directory)
+            package = tree / "feeds/packages/net/miniupnpd"
+            patches = package / "patches"
+            patches.mkdir(parents=True)
+            (package / "Makefile").write_text(
+                "PKG_VERSION:=2.3.11\n"
+                "PKG_HASH:=91994b127da735b2c97f19992e34420648c0e8c4ace8a4bcb0596e7685c48678\n")
+            retained = {
+                "010-upnp-igdv2-compat.patch": b"upstream IGD compatibility\n",
+                "040-improve-logging.patch": b"upstream logging rebased onto 2.3.11\n",
+                "900-miniupnpd-format-xml-to-make-some-app-happy.patch": b"upstream XML compatibility\n",
+            }
+            for name, contents in retained.items():
+                (patches / name).write_bytes(contents)
+            for logging in (retained["040-improve-logging.patch"], b"another upstream logging refresh\n"):
+                with self.subTest(logging=logging):
+                    retained["040-improve-logging.patch"] = logging
+                    (patches / "040-improve-logging.patch").write_bytes(logging)
+                    for _ in range(2):
+                        self.assertEqual(compat.patch(tree), [])
+                        for name, contents in retained.items():
+                            self.assertEqual((patches / name).read_bytes(), contents)
+
+    def test_feed_workaround_checks_all_stale_hashes_before_removal(self):
+        with tempfile.TemporaryDirectory() as directory:
+            tree = Path(directory)
+            package = tree / "feeds/packages/net/miniupnpd"
+            patches = package / "patches"
+            patches.mkdir(parents=True)
+            (package / "Makefile").write_text(
+                "PKG_VERSION:=2.3.11\n"
+                "PKG_HASH:=91994b127da735b2c97f19992e34420648c0e8c4ace8a4bcb0596e7685c48678\n")
+            stale = {
+                "020-descr-filter-fix.patch": b"known parser fix\n",
+                "030-allow-private-fix.patch": b"known private-IP fix\n",
+            }
+            for name, contents in stale.items():
+                (patches / name).write_bytes(contents)
+            logging = patches / "040-improve-logging.patch"
+            logging.write_bytes(b"refreshed upstream logging\n")
+            hashes = {name: hashlib.sha256(contents).hexdigest() for name, contents in stale.items()}
+            with mock.patch.dict(compat.STALE_PATCHES, hashes):
+                changed = patches / "030-allow-private-fix.patch"
+                changed.write_bytes(b"unknown upstream private-IP change\n")
+                with self.assertRaisesRegex(RuntimeError, "Upstream changed 030-allow-private-fix.patch"):
+                    compat.patch(tree)
+                self.assertEqual((patches / "020-descr-filter-fix.patch").read_bytes(), stale["020-descr-filter-fix.patch"])
+                self.assertEqual(changed.read_bytes(), b"unknown upstream private-IP change\n")
+                changed.write_bytes(stale[changed.name])
+                self.assertEqual(set(compat.patch(tree)), set(stale))
+                self.assertEqual(compat.patch(tree), [])
+            self.assertEqual(logging.read_bytes(), b"refreshed upstream logging\n")
+            for name in stale:
+                self.assertFalse((patches / name).exists())
+
     def test_target_and_release_isolation(self):
         targets = json.loads((ROOT / ".github/targets.json").read_text())["targets"]
         test = next(item for item in targets if item["branch"] == "test")

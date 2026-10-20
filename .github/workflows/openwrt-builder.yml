@@ -671,14 +671,36 @@ jobs:
         path: openwrt/.ccache
         key: ${{ runner.os }}-ccache-${{ matrix.source }}-${{ matrix.branch }}-${{ github.run_id }}
 
+    - name: Collect build diagnostics
+      if: failure()
+      continue-on-error: true
+      run: |
+        # Record revisions without exporting .git configuration or credentials.
+        {
+          printf 'Build configuration commit: %s\n' "$GITHUB_SHA"
+          printf 'Upstream commit: %s\n' "${SOURCE_SHA:-unknown}"
+          printf '\nSource/feed revisions and tracked changes:\n'
+          for source_dir in openwrt openwrt/feeds/*; do
+            [ -e "$source_dir/.git" ] || continue
+            printf '\n%s\n' "$source_dir"
+            git -C "$source_dir" rev-parse HEAD || true
+            git -C "$source_dir" status --short --untracked-files=no || true
+          done
+        } > build-diagnostics.txt
+
     - name: Upload build logs
       uses: actions/upload-artifact@v4
-      if: failure() && steps.compile.outcome == 'failure'
+      if: failure()
       with:
         name: build-logs_${{ matrix.source }}_${{ matrix.branch }}
         path: |
+          build-diagnostics.txt
           openwrt/logs
           openwrt/.config
+          openwrt/feeds.conf.default
+          openwrt/package-provenance.txt
+          openwrt/build_dir/target-*/linux-x86_64/linux-*/.config
+        include-hidden-files: true
         retention-days: 14
         if-no-files-found: warn
 

@@ -225,7 +225,9 @@ GitHub 托管 runner 有几条硬性限制，流水线是围绕它们设计的�
 
 其它行为：
 
-- 编译失败时上传 `openwrt/logs`（已启用 `CONFIG_BUILD_LOG`）和 `.config`，保留 14 天。
+- 配置、下载或编译阶段失败时上传 `openwrt/logs`（已启用 `CONFIG_BUILD_LOG`）、`.config`、
+  内核配置、feed 配置和包来源清单，保留 14 天；显式包含隐藏的 `.config` 文件。
+  诊断报告记录构建配置 commit、上游及各 feed 的实际 commit 和已跟踪文件改动，不导出 Git 凭据。
   不再靠整轮 `make -j1 V=s` 重跑来取日志。
 - 重试阶梯全部增量执行：并行 → 并行重试 → 单线程 `V=s`。不再有 `make clean` 后的全量重建
   （那在 6 小时内不可能完成）。

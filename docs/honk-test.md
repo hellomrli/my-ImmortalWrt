@@ -70,8 +70,9 @@ Honk 的 `/etc/honk/system.dae` 包含 `nfqueue_enable`，相关 UCI 设置与�
 - Release 附带构建配置、内核配置、来源哈希清单及 Honk/LuCI/两个 NFQUEUE 模块的 APK。
 
 Honk 固件兼容处理：移除未选用且存在 Kconfig 循环依赖的 video、freeradius3、squeezelite-custom；
-miniupnpd 2.3.11 已包含旧 020/030 补丁的修复，去掉重复补丁以及不再适用的 040 日志/帮助文字美化，
-保留 IGD/XML 兼容补丁。不降级 miniupnpd、不移除其上游安全修复；未知版本/补丁改动不会被盲目套用。
+miniupnpd 2.3.11 已包含旧 020/030 补丁的修复，只移除哈希已知的重复补丁；
+保留上游已重新适配的 040 日志补丁及 IGD/XML 兼容补丁。不降级 miniupnpd、不移除其上游安全修复；
+未知版本或待移除补丁的改动不会被盲目套用。
 
 ## 构建
 
