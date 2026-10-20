@@ -8,10 +8,10 @@ import re
 import sys
 
 STALE_PATCHES = {
-    # 020/030 fixes are already in 2.3.11; 040 only customizes logs/help text.
+    # 020/030 fixes are already in 2.3.11. Upstream has since rebased
+    # 040-improve-logging.patch onto 2.3.11, so it applies cleanly and is kept.
     "020-descr-filter-fix.patch": "4e0f8ddf58cb130044a5f3b92bdf3a8859f8c15e0edbcbcb2b8df42f99e41da1",
     "030-allow-private-fix.patch": "c667bfaa2f1028d1dc44547d4dd4302891799fc0de271a17618eff537b1a2339",
-    "040-improve-logging.patch": "aad6802ab9d01ecea2c143d7495644b714e171552434049f8669d4f28611bcba",
 }
 
 
