@@ -1,0 +1,47 @@
+#!/bin/sh
+set -eu
+
+if [ "$#" -lt 2 ]; then
+  echo "usage: $0 CONFIG COMMAND [ARG...]" >&2
+  exit 2
+fi
+
+conf="$1"
+shift
+host="$(awk '
+  /^http:/ { in_http=1; next }
+  in_http && /^[^[:space:]]/ { exit }
+  in_http && /^[[:space:]]+address:/ {
+    sub(/^[[:space:]]+address:[[:space:]]*/, "")
+    sub(/[[:space:]]+#.*$/, "")
+    gsub(/^[\047\042]|[\047\042]$/, "")
+    sub(/:[0-9]+$/, "")
+    sub(/^\[/, "")
+    sub(/\]$/, "")
+    print
+    exit
+  }
+' "$conf")"
+
+web_address_ready() {
+  case "$host" in
+    ''|0.0.0.0|::) return 0 ;;
+  esac
+  ip -o address show | awk -v host="$host" '
+    $3 == "inet" || $3 == "inet6" {
+      split($4, address, "/")
+      if (address[1] == host && $0 !~ / tentative| dadfailed/) found=1
+    }
+    END { exit(found ? 0 : 1) }
+  '
+}
+
+# Run inside procd, not the boot sequence: other services may bring LAN up.
+if ! web_address_ready; then
+  logger -t adh-start "$(basename "$1"): waiting for web bind address $host"
+  until web_address_ready; do
+    sleep 1
+  done
+fi
+
+exec "$@"

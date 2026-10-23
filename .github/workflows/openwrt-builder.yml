@@ -474,11 +474,13 @@ jobs:
         for script in \
           "$backup_helper" \
           files/etc/init.d/adh-direct files/etc/init.d/adh-proxy \
+          files/usr/libexec/adh-wait-start \
           files/etc/init.d/perf-tune \
           files/etc/uci-defaults/97-dnsmasq-cache \
           files/etc/uci-defaults/98-fstab-single-boot files/etc/uci-defaults/99-adh-dual; do
           sh -n "$script" || { echo "::error::Shell syntax check failed: $script"; exit 1; }
         done
+        python3 "$GITHUB_WORKSPACE/.github/scripts/test-adh-wait-start.py"
         python3 "$GITHUB_WORKSPACE/.github/scripts/test-check-adh-config.py" --etc-dir files/etc
         python3 "$GITHUB_WORKSPACE/.github/scripts/check-adh-config.py" files/etc
         echo "Checking performance profile..."
