@@ -883,7 +883,7 @@ jobs:
         Do not run daed and Honk together. Back up configuration and the VM disk before any upgrade.
 
         Recommended image: squashfs-combined-efi.img.gz. This workflow does not flash a router.
-        Documentation: https://github.com/hellomrli/my-ImmortalWrt/blob/test/docs/honk-test.md
+        Documentation: https://github.com/hellomrli/my-ImmortalWrt/blob/main/docs/honk-test.md
         NOTES
           echo "status=success" >> "$GITHUB_OUTPUT"
         elif [ "${{ matrix.profile }}" = honk ]; then

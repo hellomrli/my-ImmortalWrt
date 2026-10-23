@@ -92,7 +92,7 @@ gh workflow run openwrt-builder.yml --ref main -f sources=immortalwrt -f branche
 `test` 分支的预发布固件：
 
 ```sh
-gh workflow run openwrt-builder.yml --ref test -f sources=immortalwrt -f branches=test
+gh workflow run openwrt-builder.yml --ref main -f sources=immortalwrt -f branches=test
 ```
 
 `test` 目标不参加定时上游更新检查。产物标签为 `immortalwrt-test-日期-时间`，只标为预发布；
