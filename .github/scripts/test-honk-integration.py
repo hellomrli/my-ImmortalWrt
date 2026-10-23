@@ -3,11 +3,13 @@
 
 import hashlib
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
 import shutil
 import subprocess
+import tarfile
 import tempfile
 import unittest
 from unittest import mock
@@ -25,7 +27,7 @@ def load(name):
 
 
 profile = load("check-honk-profile")
-source = load("pin-honk-source")
+source = load("fetch-honk-source")
 kernel = load("export-kernel-config")
 compat = load("patch-test-feed-compat")
 
@@ -154,26 +156,130 @@ class HonkTests(unittest.TestCase):
                 with self.assertRaises(RuntimeError):
                     kernel.export_kernel_config(tree, tree / "export.config", "test")
 
-    def test_locked_hashes_and_corrupt_cache(self):
-        pin = json.loads((ROOT / ".github/honk-source.json").read_text())
-        self.assertEqual(pin["core_commit"], "995a80cd87e780a2a4d63b75008dca70876857b4")
-        self.assertNotEqual(pin["source_tag"], "staging")
-        for asset in pin["assets"]:
-            self.assertRegex(asset["sha256"], r"^[0-9a-f]{64}$")
+    CORE_COMMIT = "aebc0d78d567cac1cd74ee9c56674857c5441451"
+    CORE_ASSET = f"honk-core-{CORE_COMMIT}-x86_64.tar.gz"
+    DOONA_ASSET = "doona-369aee8f-f6612106faf8.tar.gz"
+
+    def tarball(self, path, files):
+        with tarfile.open(path, "w:gz") as archive:
+            for name, contents in files.items():
+                info = tarfile.TarInfo(name)
+                info.size = len(contents)
+                archive.addfile(info, io.BytesIO(contents))
+
+    def honk_pin(self, core_tar, doona_tar):
+        core_hash = hashlib.sha256(core_tar.read_bytes()).hexdigest()
+        doona_hash = hashlib.sha256(doona_tar.read_bytes()).hexdigest()
+        release = "honk-source-39547891412"
+        return {
+            "format": 1,
+            "upstream": "https://github.com/kenzok8/openwrt-honk.git",
+            "upstream_release": "v2026.10.21-r39547891412",
+            "source_tag": "source-39547891412",
+            "wrapper_commit": "29857755c037f36d7a49fc888eef6efa90bf33fb",
+            "mirror_repository": "https://github.com/hellomrli/my-openwrt-packages.git",
+            "mirror_release": release,
+            "release_url": f"https://github.com/hellomrli/my-openwrt-packages/releases/download/{release}",
+            "core": {
+                "repository": "https://github.com/Glassyiris/honk.git",
+                "commit": self.CORE_COMMIT,
+                "version": "0.0.1-alpha",
+                "features": "clash-api,ebpf,rprx,native-api",
+                "architectures": ["x86_64", "aarch64", "armv7"],
+            },
+            "assets": {
+                "honk_x86_64": {"name": self.CORE_ASSET, "sha256": core_hash, "size": core_tar.stat().st_size},
+                "doona": {"name": self.DOONA_ASSET, "sha256": doona_hash, "size": doona_tar.stat().st_size},
+            },
+        }
+
+    def stage_honk_tree(self, tree, pin):
+        core_dir = tree / "package/honk/honk"
+        core_dir.mkdir(parents=True)
+        (core_dir / "Makefile").write_text(
+            f"PKG_NAME:=honk\nCORE_COMMIT:={pin['core']['commit']}\n")
+        (core_dir / "generated-stage.mk").write_text(
+            f"PKG_SOURCE_URL:={pin['release_url']}/\n"
+            f"HONK_ASSET_X86_64:={pin['assets']['honk_x86_64']['name']}\n"
+            f"HONK_HASH_X86_64:={pin['assets']['honk_x86_64']['sha256']}\n")
+        (core_dir / "generated-provenance.json").write_text(json.dumps({"core": pin["core"]}))
+        luci_dir = tree / "package/honk/luci-app-honk"
+        luci_dir.mkdir()
+        (luci_dir / "Makefile").write_text("PKG_NAME:=luci-app-honk\n")
+        (luci_dir / "generated-doona-stage.mk").write_text(
+            f"PKG_SOURCE:={pin['assets']['doona']['name']}\n"
+            f"PKG_SOURCE_URL:={pin['release_url']}\n"
+            f"PKG_HASH:={pin['assets']['doona']['sha256']}\n")
+        (tree / "package/honk/honk-source.json").write_text(json.dumps(pin))
+        (tree / "scripts").mkdir()
+        (tree / "scripts/feeds").write_text("")
+
+    def honk_fixture(self, directory):
+        tree = directory / "tree"
+        cache = directory / "cache"
+        cache.mkdir()
+        core_tar = cache / self.CORE_ASSET
+        self.tarball(core_tar, {
+            f"{self.CORE_ASSET[:-7]}/honk-core": b"core binary\n",
+            f"{self.CORE_ASSET[:-7]}/LICENSE": b"license\n",
+        })
+        doona_tar = cache / self.DOONA_ASSET
+        self.tarball(doona_tar, {
+            "doona/index.html": b"<html></html>\n",
+            "doona/LICENSE": b"license\n",
+            "doona/NOTICE": b"notice\n",
+            "doona/SOURCE": b"source\n",
+            "doona/THIRD-PARTY-NOTICES.txt": b"third party\n",
+        })
+        pin = self.honk_pin(core_tar, doona_tar)
+        self.stage_honk_tree(tree, pin)
+        return tree, cache, pin
+
+    def test_honk_pin_must_describe_the_mirror(self):
         with tempfile.TemporaryDirectory() as directory:
-            tree = Path(directory)
-            cache = tree / "cache"
-            cache.mkdir()
-            path = cache / "asset.tar.gz"
-            path.write_bytes(b"verified data")
-            digest = hashlib.sha256(path.read_bytes()).hexdigest()
-            source.fetch_asset("https://invalid.example/asset", tree / "dl/asset.tar.gz", digest, cache)
+            tree, _, pin = self.honk_fixture(Path(directory))
+            source.validate_sources(tree, pin)
+            pin["release_url"] = pin["release_url"].replace(
+                "github.com/hellomrli/my-openwrt-packages", "github.com/kenzok8/openwrt-honk")
+            with self.assertRaises(RuntimeError):
+                source.validate_sources(tree, pin)
+
+    def test_honk_stage_files_must_match_the_pin(self):
+        with tempfile.TemporaryDirectory() as directory:
+            tree, _, pin = self.honk_fixture(Path(directory))
+            stage = tree / "package/honk/honk/generated-stage.mk"
+            original = stage.read_text()
+            stage.write_text(original.replace(pin["core"]["commit"], "0" * 40))
+            with self.assertRaises(RuntimeError):
+                source.validate_sources(tree, pin)
+            stage.write_text(original)
+            stage.write_text(original.replace(pin["assets"]["honk_x86_64"]["sha256"], "0" * 64))
+            with self.assertRaises(RuntimeError):
+                source.validate_sources(tree, pin)
+
+    def test_honk_assets_are_hash_checked_before_use(self):
+        with tempfile.TemporaryDirectory() as directory:
+            tree, cache, pin = self.honk_fixture(Path(directory))
+            self.assertEqual(source.install(tree, pin, cache), [self.CORE_ASSET, self.DOONA_ASSET])
+            for name in (self.CORE_ASSET, self.DOONA_ASSET):
+                self.assertTrue((tree / "dl" / name).is_file())
+            (tree / "dl" / self.CORE_ASSET).unlink()
+            (cache / self.CORE_ASSET).write_bytes(b"corrupt data")
+            with self.assertRaises(RuntimeError):
+                source.install(tree, pin, cache)
             for expected in ("SKIP", "0" * 64):
                 with self.assertRaises(RuntimeError):
-                    source.verify_hash(path, expected)
-            path.write_bytes(b"corrupt data")
+                    source.verify_hash(tree / "dl" / self.DOONA_ASSET, expected)
+
+    def test_honk_provenance_features_are_required(self):
+        with tempfile.TemporaryDirectory() as directory:
+            tree, _, pin = self.honk_fixture(Path(directory))
+            provenance = tree / "package/honk/honk/generated-provenance.json"
+            data = json.loads(provenance.read_text())
+            data["core"]["features"] = "ebpf"
+            provenance.write_text(json.dumps(data))
             with self.assertRaises(RuntimeError):
-                source.fetch_asset("https://invalid.example/asset", tree / "dl/asset.tar.gz", digest, cache)
+                source.validate_sources(tree, pin)
 
     def test_feed_workaround_is_narrow_and_idempotent(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -277,7 +383,11 @@ class HonkTests(unittest.TestCase):
         self.assertTrue(recovery["with"]["include-hidden-files"])
         self.assertIn("openwrt/bin/targets", recovery["with"]["path"].splitlines())
         packages = json.loads((ROOT / ".github/packages-honk.json").read_text())["packages"]
-        self.assertEqual({package["name"] for package in packages}, {"luci-app-lucky", "luci-app-watchdog"})
+        self.assertEqual({package["name"] for package in packages},
+                         {"honk", "luci-app-lucky", "luci-app-watchdog"})
+        honk = next(package for package in packages if package["name"] == "honk")
+        self.assertTrue(honk["mirror_only"])
+        self.assertIn("honk-source.json", honk["require"])
 
 
 if __name__ == "__main__":

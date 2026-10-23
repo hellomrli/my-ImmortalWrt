@@ -1,12 +1,32 @@
 {
   "_comment": [
-    "Common packages for the Honk test target. The pinned Honk wrapper and its verified release assets are installed by pin-honk-source.py."
+    "Packages for the Honk profile. All of them are installed from the package mirror;",
+    "the Honk entry is mirror-only because the wrapper is only usable together with the",
+    "release assets the mirror re-hosts (read by fetch-honk-source.py)."
   ],
   "mirror": {
     "repo": "https://github.com/hellomrli/my-openwrt-packages.git",
     "ref": "main"
   },
   "packages": [
+    {
+      "name": "honk",
+      "description": "Honk core + Doona UI + luci-app-honk",
+      "target": "package/honk",
+      "mirror_path": "openwrt-honk",
+      "upstream": "https://github.com/kenzok8/openwrt-honk.git",
+      "upstream_ref": null,
+      "mirror_only": true,
+      "require": [
+        "honk/Makefile",
+        "luci-app-honk/Makefile",
+        "honk-source.json",
+        "honk/generated-stage.mk",
+        "luci-app-honk/generated-doona-stage.mk",
+        "honk/generated-provenance.json"
+      ],
+      "note": "镜像按上游 release 同步 wrapper、generated-stage.mk 与全部哈希锁定资源；构建前由 .github/scripts/fetch-honk-source.py 校验并下载到 dl/，不再访问 kenzok8/openwrt-honk。"
+    },
     {
       "name": "luci-app-lucky",
       "description": "Lucky runtime + LuCI app",

@@ -11,6 +11,11 @@ mirror also holds packages this firmware deliberately does not build (golang,
 adguardhome-dual, openclash, passwall, ...); dropping the whole mirror into
 package/ would collide with feeds/packages/lang/golang and with this firmware's
 overlay-based dual AdGuardHome setup.
+
+A package with ``"mirror_only": true`` has no upstream fallback: Honk is only
+usable together with the hash-locked release assets the mirror re-hosts, so
+silently cloning the upstream branch would hand the build a wrapper whose
+Makefile falls back to the rolling staging release with ``SKIP`` hashes.
 """
 
 from __future__ import annotations
@@ -172,6 +177,11 @@ def main() -> int:
             if source_dir is None:
                 if mode == "mirror":
                     raise FetchError(f"{name} is unavailable from the mirror")
+                if package.get("mirror_only"):
+                    raise FetchError(
+                        f"{name} must come from the mirror as {package['mirror_path']}; "
+                        "it cannot be built from upstream alone"
+                    )
                 upstream_dir = workdir / f"_upstream_{name}"
                 commit = clone(package["upstream"], package.get("upstream_ref"), upstream_dir)
                 source_dir = upstream_dir

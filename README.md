@@ -83,8 +83,8 @@ master 固件的软件选择、网络配置和预置文件保持不变，仅把�
 
 ### DNS / 代理
 
-`honk`、`luci-app-honk`（`kenzok8/openwrt-honk` 固定提交，Honk core / Doona 使用 SHA256
-锁定的上游 release 资源）、`adguardhome`（官方包，预置 `adh-direct` / `adh-proxy` 双实例）、
+`honk`、`luci-app-honk`（镜像 `openwrt-honk`，按上游 release 同步 wrapper、Honk core 与
+Doona，全部 SHA256 锁定）、`adguardhome`（官方包，预置 `adh-direct` / `adh-proxy` 双实例）、
 `dnsmasq-full`、`v2ray-geoip` / `v2ray-geosite`。
 
 ### 系统工具
@@ -139,8 +139,8 @@ ssh -L 50080:127.0.0.1:50080 -L 50081:127.0.0.1:50081 root@192.168.50.1
 bcrypt 哈希时，可在装有 Apache 工具的电脑运行 `htpasswd -nBC 10 root`，取冒号后的哈希填入
 YAML 的 `users`。
 
-`honk` / `luci-app-honk` 由构建脚本固定到上游提交，Honk core 和 Doona 使用 SHA256 锁定的
-release 资源。DNS 分流（`adh_direct` / `adh_proxy`）和节点配置由 Honk 面板维护，
+`honk` / `luci-app-honk` 从个人镜像的 `openwrt-honk` 目录获取，wrapper 与 Honk core / Doona
+资源随上游 release 一起镜像并 SHA256 锁定。DNS 分流（`adh_direct` / `adh_proxy`）和节点配置由 Honk 面板维护，
 `/etc/config/honk` 与 `/etc/honk/` 在 sysupgrade 时随 keep.d 保留。旧 dae / daed 配置
 仍保留在设备上用于回滚，但新固件不再包含其程序。
 
@@ -158,7 +158,7 @@ DNS，不再保证全程加密，也不保证国外域名解析或代理业务�
 
 | 包 | 镜像路径 | 上游 |
 | --- | --- | --- |
-| `honk` / `luci-app-honk` | `openwrt-honk` | `kenzok8/openwrt-honk`（固定提交） |
+| `honk` / `luci-app-honk` | `openwrt-honk` | `kenzok8/openwrt-honk`（按 release 同步，含资源） |
 | `lucky` / `luci-app-lucky` | `luci-app-lucky` | `gdy666/luci-app-lucky`（LuCI 界面）+ [官方文件服务](https://release.66666.host/)（核心包） |
 | `watchdog` / `luci-app-watchdog` | `luci-app-watchdog` | `sirpdboy/luci-app-watchdog` |
 
@@ -172,12 +172,15 @@ DNS，不再保证全程加密，也不保证国外域名解析或代理业务�
 - 落地后校验每个包的必需 `Makefile`，并把实际来源和 commit 写入 `package-provenance.txt`，
   随 Release 发布为 `*_packages.txt`。
 
-`honk` / `luci-app-honk` 的 OpenWrt 包装来自 `kenzok8/openwrt-honk` 的固定提交；
-Honk core 和 Doona 的二进制/资源来自上游 release，全部 SHA256 锁定，记录在
-[`.github/honk-source.json`](.github/honk-source.json)。构建前由
-[`.github/scripts/pin-honk-source.py`](.github/scripts/pin-honk-source.py) 校验并落地，
-要求固定的 commit/tag 和匹配的 SHA256，不接受 `SKIP` 或可漂移的 staging 资源。
-实际使用的资源与哈希记入 `package-provenance.txt`。
+`honk` / `luci-app-honk` 是**只能从镜像获取**的包：镜像按上游最新 release 同步 wrapper、
+`generated-stage.mk`、`generated-doona-stage.mk` 与来源清单，并把 Honk core / Doona 归档
+重新上传到镜像自己的 release，再把 stage 文件里的下载地址改写成镜像地址。固件构建由
+[`.github/scripts/fetch-honk-source.py`](.github/scripts/fetch-honk-source.py) 读取随包下发的
+`honk-source.json`，核对 wrapper 的 `CORE_COMMIT`、release 来源、两个 stage 文件的 URL 与
+每一项 SHA256，然后才把资源放进 `dl/`；不再解析也不访问 `kenzok8/openwrt-honk`，也不接受
+`SKIP` 或可漂移的 staging 资源。清单里该项标记为 `mirror_only`：镜像不可用时构建直接失败，
+不会回退去克隆一个缺少生成文件的空 wrapper。实际使用的资源与哈希记入
+`package-provenance.txt`。
 
 **Lucky 的核心包从 3.x 起闭源**，走的是另一条路：`gdy666/lucky` 的 GitHub release 停在
 v2.27.2，新版本只在官方文件服务 [`release.66666.host`](https://release.66666.host/) 发布

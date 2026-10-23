@@ -32,7 +32,7 @@ python3 "$repo_root/.github/scripts/patch-test-feed-compat.py" "$PWD"
 python3 "$repo_root/.github/scripts/fetch-packages.py" \
     --config "$repo_root/.github/packages-honk.json" \
     --tree "$PWD" --provenance "$PWD/package-provenance.txt"
-python3 "$repo_root/.github/scripts/pin-honk-source.py" \
+python3 "$repo_root/.github/scripts/fetch-honk-source.py" \
     --tree "$PWD" --provenance "$PWD/package-provenance.txt"
 python3 "$repo_root/.github/scripts/pin-lucky-source.py" \
     --tree "$PWD" --provenance "$PWD/package-provenance.txt"

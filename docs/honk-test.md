@@ -60,10 +60,17 @@ Honk 的 `/etc/honk/system.dae` 包含 `nfqueue_enable`，相关 UCI 设置与�
 
 ## 版本与构建检查
 
-- Honk wrapper 固定为 `kenzok8/openwrt-honk@4625dc057dbb9f668b21d37a64d5ae2bea0a4081`。
-- Honk core 固定为已测试的 `995a80cd87e780a2a4d63b75008dca70876857b4`，含 `ebpf,rprx,native-api`。
-- 核心和 Doona 使用 `v2026.10.16-r38852588947` 对应的 `source-38852588947` 资源，全部校验固定 SHA256，
-  不使用可漂移的 staging 资源或 `SKIP` 校验。
+- `honk` / `luci-app-honk` 只从个人镜像 `hellomrli/my-openwrt-packages` 的 `openwrt-honk`
+  目录获取（`packages-honk.json` 标记为 `mirror_only`）。镜像按上游最新 release 同步 wrapper、
+  `generated-stage.mk`、`generated-doona-stage.mk` 和来源清单，并把核心 / Doona 归档重新上传到
+  镜像 release；固件不会访问 `kenzok8/openwrt-honk`。
+- 构建前 `fetch-honk-source.py` 校验随包下发的 `honk-source.json` 与 wrapper 的 `CORE_COMMIT`、
+  两个 stage 文件的镜像 URL 和每一项 SHA256，然后才下载到 `dl/`。不接受 `SKIP`、可漂移的
+  staging 资源，也不回退上游。
+- 当前镜像的 Honk wrapper 为 `29857755`（上游 `v2026.10.21-r39547891412`），核心为
+  `aebc0d78d567cac1cd74ee9c56674857c5441451`（含 `clash-api,ebpf,rprx,native-api`）。
+  版本随镜像同步前进；需要回到某个已知可用状态时，把 `packages-honk.json` 的 `mirror.ref`
+  固定到镜像的 commit。
 - 上游 wrapper 使用预编译的静态 Honk 核心，不是在本工作流里重新编译 Rust；OpenWrt 包装、依赖、
   LuCI 翻译和 NFQUEUE 内核模块由本次固件构建系统生成，不复用其他 SDK 的 APK。
 - `make defconfig` 后检查 Honk、NFQUEUE、双 ADH、eBPF、恢复网络；发布前再检查 manifest 与真实 kernel `.config`。
