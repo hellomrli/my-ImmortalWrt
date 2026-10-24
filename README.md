@@ -19,14 +19,10 @@ master 固件的软件选择、网络配置和预置文件保持不变，仅把�
 `openwrt-25.12` 已停止构建。`iptv` 是独立固件目标，面向 `192.168.50.250` 的专用 IPTV
 转发设备，详见 [IPTV 说明](docs/iptv.md)。
 
-`test` Git 分支保留为 Honk 预发布通道：仅手动构建、单独预发布，不替换正式 master 固件。
-详见 [Honk 说明](docs/honk-test.md)。
-
 | 固件 | 上游分支 | 推荐下载 |
 | --- | --- | --- |
 | `immortalwrt-master` | ImmortalWrt `master`，Honk + NFQUEUE | `squashfs-combined-efi.img.gz` |
 | `immortalwrt-iptv` | ImmortalWrt `master`，IPTV 专用配置 | `squashfs-combined-efi.img.gz` |
-| `immortalwrt-test` | ImmortalWrt `master`，Honk 手动预发布 | `squashfs-combined-efi.img.gz` |
 
 ## 当前构建概览
 
@@ -35,7 +31,6 @@ master 固件的软件选择、网络配置和预置文件保持不变，仅把�
 |----------|----------|----------|----------|---------|----------|
 | ImmortalWrt `master`（Honk） | 已发布 | `immortalwrt-master-2026.10.24-0402` | 2026-10-24 04:09 CST | [下载](https://github.com/hellomrli/my-ImmortalWrt/releases/tag/immortalwrt-master-2026.10.24-0402) | `squashfs-combined-efi.img.gz` |
 | ImmortalWrt `iptv`（上游 master） | 已发布 | `immortalwrt-iptv-2026.10.21-2220` | 2026-10-21 22:20 CST | [下载](https://github.com/hellomrli/my-ImmortalWrt/releases/tag/immortalwrt-iptv-2026.10.21-2220) | `squashfs-combined-efi.img.gz` |
-| ImmortalWrt `test` (Honk / upstream master) | 已发布 | `immortalwrt-test-2026.10.17-0315` | 2026-10-17 03:15 CST | [下载](https://github.com/hellomrli/my-ImmortalWrt/releases/tag/immortalwrt-test-2026.10.17-0315) | `squashfs-combined-efi.img.gz` |
 
 > 此表由 GitHub Actions 自动更新；新 Release 发布后会同步最新版本和链接。
 <!-- BUILD_TABLE_END -->
@@ -117,7 +112,7 @@ Honk 透明 DNS 接管 / DNS routing
 | ADH-proxy Web | `127.0.0.1`（首次启动） | 50081 | 设置认证前仅本机可访问 |
 
 固件使用 ImmortalWrt 官方 `packages/net/adguardhome` 提供的 `/usr/bin/AdGuardHome`
-二进制，通过 overlay 预置两个 procd 服务和两个 symlink（供 dae 按进程名区分 direct/proxy）：
+二进制，通过 overlay 预置两个 procd 服务和两个 symlink（供代理核心按进程名区分 direct/proxy）：
 
 - `/etc/init.d/adh-direct`、`/etc/init.d/adh-proxy`
 - `/usr/bin/AdGuardHome-direct -> /usr/bin/AdGuardHome`
@@ -142,7 +137,8 @@ YAML 的 `users`。
 `honk` / `luci-app-honk` 从个人镜像的 `openwrt-honk` 目录获取，wrapper 与 Honk core / Doona
 资源随上游 release 一起镜像并 SHA256 锁定。DNS 分流（`adh_direct` / `adh_proxy`）和节点配置由 Honk 面板维护，
 `/etc/config/honk` 与 `/etc/honk/` 在 sysupgrade 时随 keep.d 保留。旧 dae / daed 配置
-仍保留在设备上用于回滚，但新固件不再包含其程序。
+仍保留在设备上用于回滚，但新固件不再包含其程序。Honk 与 NFQUEUE 的细节见
+[Honk 说明](docs/honk-test.md)。
 
 daed 时代的 DNS/ADH 方案仍可参考 [`docs/dnsmasq-daed-dual-adh.md`](docs/dnsmasq-daed-dual-adh.md)。
 当前新装模板的 ADH-proxy 使用四个 IPv4 DoH 上游、`upstream_timeout: 3s`，并暂时禁用国外 AAAA；
@@ -207,8 +203,8 @@ PKG_SOURCE=mirror        # 强制只用镜像，缺包即失败
 
 ## 构建流水线
 
-[`configs/immortalwrt.config`](configs/immortalwrt.config) 保存精简构建选项，由上游
-`scripts/diffconfig.sh` 提取，并补齐两个分支都需要显式保留的设置。master 在
+[`configs/honk.config`](configs/honk.config) 保存 master 的精简构建选项，由上游
+`scripts/diffconfig.sh` 提取，并补齐需要显式保留的设置。master 在
 `make defconfig` 后校验恢复模式 IP、BTF、`kmod-sched` 和 QEMU Guest Agent；IPTV 使用
 独立的 `configs/iptv.config` 和校验脚本，恢复地址为 `.250`，不要求透明代理的 BPF 组件。最终完整
 `.config` 随 Release 发布。Ruby 及其标准库不再预装，`qemu-ga` 所需的 GLib 依赖保留。
@@ -220,7 +216,7 @@ GitHub 托管 runner 有几条硬性限制，流水线是围绕它们设计的�
 
 | 限制 | 应对 |
 | --- | --- |
-| 单 job 6 小时上限 | 编译步骤设 320 分钟**步骤级**超时（步骤超时会保留后续步骤，job 超时不会），失败时仍能上传日志 |
+| 单 job 6 小时上限 | job 限时 350 分钟；编译前扣除前置步骤的实际耗时，动态设置步骤超时（最多 320 分钟），预留 30 分钟给诊断和收尾；前置步骤也分别限时 |
 | 仓库 Actions 缓存共 10 GB | 只缓存 ccache（上限 2 GB、开压缩），不缓存 `dl/`；重新下载只花几分钟，冷 ccache 要花几小时 |
 | `actions/cache` 命中主 key 就跳过保存 | ccache 用 run 唯一 key + 前缀恢复，并改用显式 `restore` / `save`，失败的构建也能留下部分预热缓存 |
 | 磁盘容易 ENOSPC | 清理 dotnet / android / ghc / CodeQL / boost 等预装目录，编译前后都输出 `df` |
@@ -231,6 +227,7 @@ GitHub 托管 runner 有几条硬性限制，流水线是围绕它们设计的�
 - 配置、下载或编译阶段失败时上传 `openwrt/logs`（已启用 `CONFIG_BUILD_LOG`）、`.config`、
   内核配置、feed 配置和包来源清单，保留 14 天；显式包含隐藏的 `.config` 文件。
   诊断报告记录构建配置 commit、上游及各 feed 的实际 commit 和已跟踪文件改动，不导出 Git 凭据。
+  失败日志优先于缓存统计和保存上传；日志与缓存步骤各自限时，避免缓存耗尽诊断时间。
   不再靠整轮 `make -j1 V=s` 重跑来取日志。
 - 重试阶梯全部增量执行：并行 → 并行重试 → 单线程 `V=s`。不再有 `make clean` 后的全量重建
   （那在 6 小时内不可能完成）。
@@ -245,10 +242,10 @@ GitHub 托管 runner 有几条硬性限制，流水线是围绕它们设计的�
 ## 性能调优
 
 固件预置 [`/etc/sysctl.d/99-performance.conf`](files/etc/sysctl.d/99-performance.conf)，
-针对「x86 + dae 透明代理」这个具体场景，而不是通用模板。
+针对「x86 + 透明代理」这个具体场景，而不是通用模板。
 
 **BBR 拥塞控制。** 普通路由器开 BBR 没有意义——转发流量由两端主机的拥塞控制决定。
-但 dae 会在本机终结客户端 TCP、再向代理服务器发起新连接，**这些出站连接用的是路由器自己的
+但透明代理核心会在本机终结客户端 TCP、再向代理服务器发起新连接，**这些出站连接用的是路由器自己的
 拥塞控制**。国际链路通常有丢包，cubic 每次丢包都会大幅收缩窗口，BBR 按实测带宽和 RTT 建模，
 在有损长 RTT 路径上吞吐明显更高。配套的 `fq` 只作用于没有显式 qdisc 的接口，
 WAN 上的 SQM/cake 不受影响。`sch_fq` 由 `kmod-sched` 提供，启动脚本会加载该模块；
@@ -350,9 +347,9 @@ overlay 文件不会遮蔽后续规则更新；`/etc/sysupgrade.conf` 留给你�
 
 - **已安装的软件包本身。** 保留配置不等于保留软件包。固件内置的包会随新固件一起回来；
   你自己 `apk add` 装的需要重新安装。备份工具用 `-k` 导出软件包清单供比对。
-- **AdGuardHome 运行时数据**（`/var/lib/adguardhome-*`）。`/var` 指向 `/tmp`，
-  查询日志、统计和已下载的过滤规则内容**每次重启都会丢**，不只是升级。
-  真正的设置（上游、过滤器订阅地址、用户密码）在 YAML 里，会保留；重启后规则会重新下载。
+- **AdGuardHome 运行时数据**（`/srv/adguardhome-*`）。它不在 keep.d 中：普通重启会保留，
+  但 sysupgrade 重建磁盘时会随 overlay 一起丢失，必要时需自行纳入备份。
+  真正的设置（上游、过滤器订阅地址、用户密码）在 YAML 里，会保留；规则可在启动后重新下载。
 - `/tmp`、`/var` 下的其它一切。
 - 未列入 keep.d、conffiles，也未被 `-c` 捕获的路径。
 

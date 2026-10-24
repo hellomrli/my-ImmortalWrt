@@ -12,8 +12,9 @@ ln -sf AdGuardHome /usr/bin/AdGuardHome-proxy
 adh_has_user() {
   awk '
     /^users:/ { in_users=1; next }
-    in_users && /^[^[:space:]]/ { in_users=0 }
-    in_users && /^[[:space:]]*-[[:space:]]+name:/ { found=1 }
+    # YAML permits sequence items at the same indentation as the users key.
+    in_users && /^[^[:space:]#]/ && !/^-[[:space:]]/ { in_users=0 }
+    in_users && /^[[:space:]]*(-[[:space:]]+)?name:/ { found=1 }
     END { exit(found ? 0 : 1) }
   ' "$1"
 }

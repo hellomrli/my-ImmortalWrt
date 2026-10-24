@@ -4,12 +4,9 @@
 dae / daed / luci-app-daede，同时编入 NFQUEUE 内核模块。网络基线、双 AdGuardHome、
 dnsmasq DHCP、Lucky、Watchdog 和 F2FS 恢复支持保持不变。
 
-仓库的 `test` Git 分支保留为 Honk 预发布通道：同样基于上游 master，仅手动构建、
-单独预发布，不替换正式 master 固件。
-
 ## 与旧 daed 固件的区别
 
-| 项目 | 旧 master 固件 | 当前 master / test 固件 |
+| 项目 | 旧 master 固件 | 当前 master 固件 |
 | --- | --- | --- |
 | 代理 | dae / daed + luci-app-daede | Honk + luci-app-honk / Doona |
 | NFQUEUE | 未显式要求 | kmod-nft-queue + kmod-nfnetlink-queue |
@@ -17,7 +14,7 @@ dnsmasq DHCP、Lucky、Watchdog 和 F2FS 恢复支持保持不变。
 | DHCP / 本地域名 | dnsmasq | 保留 dnsmasq，不删除 DHCP 服务 |
 | LAN / 恢复地址 | 192.168.50.1 | 不变 |
 | PVE、网卡、F2FS、SFTP、Lucky、Watchdog | 原有配置 | 保留 |
-| 发布 | 正式 master 标签 | master 为正式标签；test 为独立 immortalwrt-test-* 预发布，不替换 Latest |
+| 发布 | 正式 master 标签 | 正式 `immortalwrt-master-*` 标签 |
 
 去掉 dae/daed 软件包不等于转换它们的用户配置。固件仓库不包含真实节点、订阅、面板密码
 或从设备复制的数据库。之前在设备上准备的 Honk 配置属于设备上的用户数据，升级前必须备份。
@@ -83,20 +80,13 @@ miniupnpd 2.3.11 已包含旧 020/030 补丁的修复，只移除哈希已知的
 
 ## 构建
 
-正式 master 固件：
+master 固件：
 
 ```sh
 gh workflow run openwrt-builder.yml --ref main -f sources=immortalwrt -f branches=master
 ```
 
-`test` 分支的预发布固件：
-
-```sh
-gh workflow run openwrt-builder.yml --ref main -f sources=immortalwrt -f branches=test
-```
-
-`test` 目标不参加定时上游更新检查。产物标签为 `immortalwrt-test-日期-时间`，只标为预发布；
-test 构建不触发写入 main 的 README 更新，也不清理其他分支的构建记录。
+产物标签为 `immortalwrt-master-日期-时间`，发布为正式 Release，并同步刷新 README 构建表。
 
 刷机前运行 `my-sysupgrade-backup`，将备份下载到其他设备，并额外保存 PVE 虚拟机磁盘快照。
 保留列表新增 `/etc/config/honk` 与整个 `/etc/honk`（包含配置、状态数据库），同时保留双 ADH 与旧代理数据。

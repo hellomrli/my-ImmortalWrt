@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regression tests for the isolated Honk test firmware and its release gates."""
+"""Regression tests for the Honk firmware and its release gates."""
 
 import hashlib
 import importlib.util
@@ -147,14 +147,14 @@ class HonkTests(unittest.TestCase):
                 "XDP_SOCKETS", "NET_SCH_FQ", "TCP_CONG_BBR"))
             config.write_text(base)
             with self.assertRaises(RuntimeError):
-                kernel.export_kernel_config(tree, tree / "export.config", "test")
+                kernel.export_kernel_config(tree, tree / "export.config", "honk")
             complete = base + "CONFIG_NFT_QUEUE=m\nCONFIG_NETFILTER_NETLINK_QUEUE=m\n"
             config.write_text(complete)
-            kernel.export_kernel_config(tree, tree / "export.config", "test")
+            kernel.export_kernel_config(tree, tree / "export.config", "honk")
             for line in ("CONFIG_NFT_QUEUE=m\n", "CONFIG_NETFILTER_NETLINK_QUEUE=m\n", "CONFIG_DEBUG_INFO_BTF=y\n"):
                 config.write_text(complete.replace(line, ""))
                 with self.assertRaises(RuntimeError):
-                    kernel.export_kernel_config(tree, tree / "export.config", "test")
+                    kernel.export_kernel_config(tree, tree / "export.config", "honk")
 
     CORE_COMMIT = "aebc0d78d567cac1cd74ee9c56674857c5441451"
     CORE_ASSET = f"honk-core-{CORE_COMMIT}-x86_64.tar.gz"
@@ -361,9 +361,7 @@ class HonkTests(unittest.TestCase):
 
     def test_target_and_release_isolation(self):
         targets = json.loads((ROOT / ".github/targets.json").read_text())["targets"]
-        test = next(item for item in targets if item["branch"] == "test")
-        self.assertEqual(test["upstream_branch"], "master")
-        self.assertFalse(test["automatic"])
+        self.assertEqual([item["branch"] for item in targets], ["master", "iptv"])
         master = next(item for item in targets if item["branch"] == "master")
         self.assertEqual(master["profile"], "honk")
         self.assertEqual(master["config_file"], "configs/honk.config")
@@ -372,9 +370,10 @@ class HonkTests(unittest.TestCase):
         workflow = yaml.safe_load((ROOT / ".github/workflows/openwrt-builder.yml").read_text())
         steps = {step["name"]: step for step in workflow["jobs"]["build"]["steps"]}
         release = steps["Upload to release"]["with"]
-        self.assertIn("matrix.branch == 'test'", release["prerelease"])
-        self.assertIn("'false'", release["make_latest"])
-        self.assertIn("github.ref_name != 'test'", steps["Refresh README build table"]["if"])
+        self.assertFalse(release["prerelease"])
+        self.assertEqual(release["make_latest"], "legacy")
+        self.assertNotIn("test", steps["Refresh README build table"]["if"])
+        self.assertEqual(workflow["jobs"]["cleanup-runs"]["if"], "always()")
         recovery = steps["Preserve unpublished firmware on organize failure"]
         self.assertIn("matrix.profile == 'honk'", recovery["if"])
         self.assertIn("steps.compile.outputs.status == 'success'", recovery["if"])

@@ -24,12 +24,12 @@ def matrix_script(workflow, step_name):
 class IntegrationTests(unittest.TestCase):
     def test_target_selection_and_upstream(self):
         targets = json.loads((ROOT / '.github/targets.json').read_text())['targets']
-        self.assertEqual([t['branch'] for t in targets], ['master', 'iptv', 'test'])
+        self.assertEqual([t['branch'] for t in targets], ['master', 'iptv'])
         self.assertEqual(targets[0]['config_file'], 'configs/honk.config')
         self.assertEqual(targets[0]['diy_p2_sh'], 'diy-part2-honk.sh')
         self.assertEqual(targets[1]['upstream_branch'], 'master')
         script = matrix_script('openwrt-builder.yml', 'Generate build matrix')
-        for selection, want in [('all', ['master', 'iptv', 'test']), ('iptv', ['iptv']), ('["master"]', ['master']), ('test', ['test'])]:
+        for selection, want in [('all', ['master', 'iptv']), ('iptv', ['iptv']), ('["master"]', ['master']), ('master,iptv', ['master', 'iptv'])]:
             with tempfile.NamedTemporaryFile() as output:
                 env = dict(os.environ, GITHUB_OUTPUT=output.name, REQUESTED_SOURCES='all', REQUESTED_BRANCHES=selection)
                 subprocess.run([sys.executable, '-c', script], cwd=ROOT, env=env, check=True, capture_output=True)

@@ -121,7 +121,7 @@ make package/luci-app-gxmobile/compile V=s
 针对这台现有 APK 固件，也可只安装本次生成的组件，不升级内核：
 
 ```sh
-apk add --no-network --allow-untrusted /tmp/gxmobile-scan-1.2.0-r2.apk /tmp/luci-app-gxmobile-1.2.0-r2.apk
+apk add --no-network --allow-untrusted /tmp/gxmobile-scan-1.2.0-r3.apk /tmp/luci-app-gxmobile-1.2.0-r3.apk
 ```
 
 本地包未签名；只对自行构建/核对过的这两个文件使用 `--allow-untrusted`。

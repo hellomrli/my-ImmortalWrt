@@ -4,6 +4,7 @@
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -21,7 +22,25 @@ class AdhStartTests(unittest.TestCase):
         self.bin.mkdir()
         self.env = {**os.environ, "TEST_DIR": str(self.directory)}
         self.env["PATH"] = f"{self.bin}:{os.environ['PATH']}"
-        self.script("ip", 'cat "$TEST_DIR/addresses"')
+        ip = self.bin / "ip"
+        ip.write_text(f"#!{sys.executable}\n" + '''import ipaddress
+import os
+from pathlib import Path
+import sys
+
+args = sys.argv[1:]
+assert args[:3] == ["-o", "address", "show"], args
+network = None
+if len(args) > 3:
+    assert len(args) == 5 and args[3] == "to", args
+    network = ipaddress.ip_network(args[4])
+    assert network.prefixlen == network.max_prefixlen, args
+for line in (Path(os.environ["TEST_DIR"]) / "addresses").read_text().splitlines():
+    address = ipaddress.ip_interface(line.split()[3]).ip
+    if network is None or address in network:
+        print(line)
+''')
+        ip.chmod(0o755)
         self.script("logger", 'echo "$*" >> "$TEST_DIR/messages"')
         self.script("sleep", '''
 echo wait >> "$TEST_DIR/waits"
@@ -79,6 +98,42 @@ cp "$TEST_DIR/ready-addresses" "$TEST_DIR/addresses"
     def test_quoted_ipv4_with_comment(self):
         self.run_gate("'192.168.50.1:50081' # admin", "8: br-lan inet 192.168.50.1/24 scope global\n")
         self.assertFalse((self.directory / "waits").exists())
+
+    def test_expanded_ipv6_matches_compressed_address(self):
+        self.run_gate(
+            '"[FD00:0050:0000:0000:0000:0000:0000:0001]:50080"',
+            "8: br-lan inet6 fd00:50::1/64 scope global\n",
+        )
+        self.assertFalse((self.directory / "waits").exists())
+
+    def test_compressed_ipv6_matches_expanded_address(self):
+        self.run_gate(
+            "'[fd00:50::1]:50080'",
+            "8: br-lan inet6 fd00:0050:0000:0000:0000:0000:0000:0001/64 scope global\n",
+        )
+        self.assertFalse((self.directory / "waits").exists())
+
+    def test_different_ipv6_in_same_subnet_does_not_match(self):
+        self.run_gate(
+            '"[fd00:0050::1]:50080"',
+            "8: br-lan inet6 fd00:50::2/64 scope global\n",
+            "8: br-lan inet6 fd00:50::1/64 scope global\n",
+        )
+        self.assertEqual((self.directory / "waits").read_text(), "wait\n")
+
+    def test_failed_dad_waits_for_a_usable_address(self):
+        self.run_gate(
+            '"[fd00:0050::1]:50080"',
+            "8: br-lan inet6 fd00:50::1/64 scope global dadfailed\n",
+            "8: br-lan inet6 fd00:50::1/64 scope global\n",
+        )
+        self.assertEqual((self.directory / "waits").read_text(), "wait\n")
+
+    def test_expanded_wildcard_ipv6_does_not_wait(self):
+        for host in ("0:0:0:0:0:0:0:0", "0000:0000::0000"):
+            with self.subTest(host=host):
+                self.run_gate(f"'[{host}]:50080'")
+                self.assertFalse((self.directory / "waits").exists())
 
     def test_wildcard_ipv4_does_not_wait(self):
         self.run_gate("0.0.0.0:50080")

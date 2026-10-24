@@ -109,9 +109,10 @@ jobs:
     # repo_url and all three script paths.
     name: build (${{ matrix.source }}/${{ matrix.branch }})
     runs-on: ubuntu-24.04
-    # GitHub hard-kills a job at 6h without running the remaining steps; stop
-    # earlier so the build-log upload below still gets a chance to run.
+    # Reserve time inside this deadline, not just inside GitHub's 6h ceiling.
     timeout-minutes: 350
+    env:
+      BUILD_JOB_TIMEOUT_MINUTES: 350
     permissions:
       contents: write
       actions: write
@@ -123,7 +124,12 @@ jobs:
       matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
 
     steps:
+    - name: Record build start
+      timeout-minutes: 1
+      run: echo "BUILD_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
+
     - name: Checkout
+      timeout-minutes: 5
       uses: actions/checkout@v7
       with:
         # Package Makefiles from cloned third-party repositories run during the
@@ -131,6 +137,7 @@ jobs:
         persist-credentials: false
 
     - name: Init environment
+      timeout-minutes: 25
       env:
         DEBIAN_FRONTEND: noninteractive
       run: |
@@ -163,7 +170,14 @@ jobs:
         sudo timedatectl set-timezone "$TZ"
         df -hT /
 
+    - name: Test build helpers
+      timeout-minutes: 3
+      run: |
+        python3 .github/scripts/test-pin-lucky-source.py
+        python3 .github/scripts/test-build-time-budget.py
+
     - name: Clone source code
+      timeout-minutes: 10
       run: |
         df -hT "$PWD"
         git clone --depth 1 ${{ matrix.repo_url }} -b ${{ matrix.upstream_branch || matrix.branch }} openwrt
@@ -190,15 +204,16 @@ jobs:
     # ccache is content-addressed internally, so a stale entry is simply unused
     # rather than wrong, and editing .config no longer throws away a warm cache.
     - name: Restore ccache
+      timeout-minutes: 10
       uses: actions/cache/restore@v6
       with:
         path: openwrt/.ccache
         key: ${{ runner.os }}-ccache-${{ matrix.source }}-${{ matrix.branch }}-${{ github.run_id }}
         restore-keys: |
           ${{ runner.os }}-ccache-${{ matrix.source }}-${{ matrix.branch }}-
-          ${{ matrix.branch == 'test' && format('{0}-ccache-{1}-master-', runner.os, matrix.source) || '' }}
 
     - name: Bound ccache size
+      timeout-minutes: 2
       run: |
         mkdir -p openwrt/.ccache
         # Two branches share one 10 GB repository budget; keep each entry small
@@ -206,6 +221,7 @@ jobs:
         printf 'max_size = 2.0G\ncompression = true\n' > openwrt/.ccache/ccache.conf
 
     - name: Load custom feeds
+      timeout-minutes: 5
       run: |
         [ -e feeds.conf.default ] && mv feeds.conf.default openwrt/feeds.conf.default
         chmod +x ${{ matrix.diy_p1_sh }}
@@ -213,6 +229,7 @@ jobs:
         $GITHUB_WORKSPACE/${{ matrix.diy_p1_sh }}
 
     - name: Update feeds
+      timeout-minutes: 20
       run: |
         cd openwrt
 
@@ -243,6 +260,7 @@ jobs:
         exit 1
 
     - name: Install feeds
+      timeout-minutes: 10
       run: cd openwrt && ./scripts/feeds install -a
 
     # golang-bootstrap otherwise compiles Go 1.4 -> 1.17 -> 1.20 -> 1.22 -> 1.24
@@ -253,6 +271,7 @@ jobs:
     # does not change; only the throwaway bootstrap chain is skipped.
     - name: Resolve Go bootstrap version
       id: go-bootstrap
+      timeout-minutes: 2
       run: |
         makefile=openwrt/feeds/packages/lang/golang/golang-bootstrap/Makefile
         minor="$(sed -n 's/^GO_VERSION_MAJOR_MINOR:=//p' "$makefile")"
@@ -264,6 +283,7 @@ jobs:
         echo "version=${minor}${patch:+.$patch}" >> "$GITHUB_OUTPUT"
 
     - name: Install Go bootstrap
+      timeout-minutes: 10
       uses: actions/setup-go@v7
       with:
         go-version: ${{ steps.go-bootstrap.outputs.version }}
@@ -271,19 +291,25 @@ jobs:
 
     - name: Test IPTV scanner and target integration
       if: matrix.branch == 'iptv'
+      timeout-minutes: 10
       run: |
         python3 .github/scripts/test-iptv-integration.py
+        node --test .github/scripts/test-gxmobile-view.js
         cd packages/gxmobile-scan/src
         go test -race ./...
         go vet ./...
+        go build -o "$RUNNER_TEMP/gxmobile-scan" .
+        python3 "$GITHUB_WORKSPACE/.github/scripts/test-gxmobile-startup.py" --binary "$RUNNER_TEMP/gxmobile-scan"
 
     - name: Test Honk profile guards
       if: matrix.profile == 'honk'
+      timeout-minutes: 5
       run: |
         python3 .github/scripts/test-honk-integration.py
         python3 .github/scripts/test-iptv-integration.py
 
     - name: Load custom configuration
+      timeout-minutes: 30
       env:
         TARGET_BRANCH: ${{ matrix.branch }}
         # Read-only use: resolving the rolling dae-src/daed-src release assets
@@ -304,6 +330,7 @@ jobs:
 
     - name: Download package
       id: package
+      timeout-minutes: 90
       run: |
         cd openwrt
         make defconfig
@@ -481,6 +508,7 @@ jobs:
           sh -n "$script" || { echo "::error::Shell syntax check failed: $script"; exit 1; }
         done
         python3 "$GITHUB_WORKSPACE/.github/scripts/test-adh-wait-start.py"
+        python3 "$GITHUB_WORKSPACE/.github/scripts/test-adh-migration.py"
         python3 "$GITHUB_WORKSPACE/.github/scripts/test-check-adh-config.py" --etc-dir files/etc
         python3 "$GITHUB_WORKSPACE/.github/scripts/check-adh-config.py" files/etc
         echo "Checking performance profile..."
@@ -590,13 +618,16 @@ jobs:
           exit 1
         fi
 
+    - name: Calculate compile budget
+      id: budget
+      timeout-minutes: 1
+      run: python3 .github/scripts/build-time-budget.py
+
     - name: Compile firmware
       id: compile
-      # Leaves ~30 min of the job budget for uploading logs, artifacts and the
-      # release.  A step timeout marks the step failed (unlike a job timeout,
-      # which cancels and skips the remaining steps), so the build-log upload
-      # below still runs.
-      timeout-minutes: 320
+      # Deduct ALL prerequisite time from the job deadline, reserving 30 min
+      # for diagnostics/finalization. Refuse to compile if no budget remains.
+      timeout-minutes: ${{ fromJSON(steps.budget.outputs.minutes || '1') }}
       run: |
         cd openwrt
         clean_go_caches() {
@@ -649,33 +680,10 @@ jobs:
         echo "SOURCE_NAME=${{ matrix.source }}" >> $GITHUB_ENV
         echo "BRANCH_NAME=${{ matrix.branch }}" >> $GITHUB_ENV
 
-    # Numbers for two open decisions: whether tools/toolchain fit in the Actions
-    # cache budget, and whether ccache hits often enough to pay for the 7-10
-    # minutes CONFIG_CCACHE makes the tools phase wait on cmake -> ccache.
-    - name: Measure build caches
-      if: ${{ !cancelled() }}
-      continue-on-error: true
-      run: |
-        cd openwrt
-        du -sh staging_dir/host staging_dir/hostpkg staging_dir/toolchain-* \
-          build_dir/host build_dir/toolchain-* .ccache 2>/dev/null || true
-        ccache_bin=staging_dir/host/bin/ccache
-        [ -x "$ccache_bin" ] || ccache_bin=ccache
-        CCACHE_DIR="$PWD/.ccache" "$ccache_bin" -s || true
-
-    # Save even when the compile failed: a partially warmed ccache still makes
-    # the next attempt materially faster.
-    - name: Save ccache
-      uses: actions/cache/save@v6
-      if: ${{ !cancelled() }}
-      continue-on-error: true
-      with:
-        path: openwrt/.ccache
-        key: ${{ runner.os }}-ccache-${{ matrix.source }}-${{ matrix.branch }}-${{ github.run_id }}
-
     - name: Collect build diagnostics
       if: failure()
       continue-on-error: true
+      timeout-minutes: 2
       run: |
         # Record revisions without exporting .git configuration or credentials.
         {
@@ -693,6 +701,7 @@ jobs:
     - name: Upload build logs
       uses: actions/upload-artifact@v7
       if: failure()
+      timeout-minutes: 10
       with:
         name: build-logs_${{ matrix.source }}_${{ matrix.branch }}
         path: |
@@ -705,6 +714,31 @@ jobs:
         include-hidden-files: true
         retention-days: 14
         if-no-files-found: warn
+
+    # Log collection/upload must precede cache work on failed builds.
+    # Numbers for deciding whether tools/toolchain caches would be worthwhile.
+    - name: Measure build caches
+      if: ${{ !cancelled() }}
+      continue-on-error: true
+      timeout-minutes: 2
+      run: |
+        cd openwrt
+        du -sh staging_dir/host staging_dir/hostpkg staging_dir/toolchain-* \
+          build_dir/host build_dir/toolchain-* .ccache 2>/dev/null || true
+        ccache_bin=staging_dir/host/bin/ccache
+        [ -x "$ccache_bin" ] || ccache_bin=ccache
+        CCACHE_DIR="$PWD/.ccache" "$ccache_bin" -s || true
+
+    # Save even when the compile failed: a partially warmed ccache still makes
+    # the next attempt materially faster, but must not consume the log budget.
+    - name: Save ccache
+      uses: actions/cache/save@v6
+      if: ${{ !cancelled() }}
+      continue-on-error: true
+      timeout-minutes: 8
+      with:
+        path: openwrt/.ccache
+        key: ${{ runner.os }}-ccache-${{ matrix.source }}-${{ matrix.branch }}-${{ github.run_id }}
 
     - name: Check space
       if: (!cancelled())
@@ -869,25 +903,6 @@ jobs:
         if [ "${{ matrix.branch }}" = iptv ]; then
           python3 "$GITHUB_WORKSPACE/.github/scripts/iptv-release-notes.py" > release.txt
           echo "status=success" >> "$GITHUB_OUTPUT"
-        elif [ "${{ matrix.branch }}" = test ]; then
-          cat > release.txt <<'NOTES'
-        # Honk test firmware (ImmortalWrt upstream master)
-
-        Experimental x86_64/PVE image, separate from the production master releases.
-        Replaces dae/daed/luci-app-daede with Honk + luci-app-honk/Doona.
-        Includes matching kmod-nft-queue and kmod-nfnetlink-queue, verified against the final kernel config.
-        Keeps 192.168.50.1, dual AdGuardHome, dnsmasq DHCP/local DNS, Lucky, Watchdog and F2FS recovery support.
-
-        Honk core and Doona use SHA256-locked upstream release binaries/assets; the OpenWrt packages and kernel modules are built for this firmware.
-        Source commits and hashes are attached in immortalwrt-test_packages.txt.
-        Fresh installs leave Honk disabled. Preserved Honk configuration/state is not overwritten or automatically enabled.
-        The previously migrated NFQUEUE-off configuration stays off; enable NFQUEUE manually only after checking the modules.
-        Do not run daed and Honk together. Back up configuration and the VM disk before any upgrade.
-
-        Recommended image: squashfs-combined-efi.img.gz. This workflow does not flash a router.
-        Documentation: https://github.com/hellomrli/my-ImmortalWrt/blob/main/docs/honk-test.md
-        NOTES
-          echo "status=success" >> "$GITHUB_OUTPUT"
         elif [ "${{ matrix.profile }}" = honk ]; then
           cat > release.txt <<'NOTES'
         # Honk 固件（ImmortalWrt 上游 master）
@@ -956,8 +971,8 @@ jobs:
       with:
         tag_name: ${{ steps.tag.outputs.release_tag }}
         target_commitish: ${{ github.sha }}
-        prerelease: ${{ matrix.branch == 'test' }}
-        make_latest: ${{ matrix.branch == 'test' && 'false' || 'legacy' }}
+        prerelease: false
+        make_latest: legacy
         body_path: release.txt
         files: ${{ env.FIRMWARE }}/*
 
@@ -984,7 +999,7 @@ jobs:
         key: commitHash_${{ matrix.source }}_${{ matrix.branch }}_${{ env.SOURCE_SHA }}
 
     - name: Refresh README build table
-      if: matrix.branch != 'test' && github.ref_name != 'test' && steps.organize.outputs.status == 'success' && steps.tag.outputs.status == 'success' && steps.release.outcome == 'success' && !cancelled()
+      if: steps.organize.outputs.status == 'success' && steps.tag.outputs.status == 'success' && steps.release.outcome == 'success' && !cancelled()
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: gh workflow run update-readme-build-table.yml --repo="${{ github.repository }}" --ref="${{ github.ref_name }}"
@@ -1003,7 +1018,7 @@ jobs:
 
   cleanup-runs:
     needs: build
-    if: always() && github.ref_name != 'test'
+    if: always()
     runs-on: ubuntu-24.04
     permissions:
       actions: write

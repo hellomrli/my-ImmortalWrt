@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Reject a Honk test image that loses the DNS baseline or NFQUEUE support."""
+"""Reject a Honk firmware image that loses the DNS baseline or NFQUEUE support."""
 
 import argparse
 from pathlib import Path
@@ -33,7 +33,7 @@ def check(tree: Path, manifest: Path | None = None) -> None:
     selected = {line.removeprefix("CONFIG_PACKAGE_").rsplit("=", 1)[0]
                 for line in config if line.startswith("CONFIG_PACKAGE_") and line.endswith(("=y", "=m"))}
     for package in REQUIRED:
-        require(f"CONFIG_PACKAGE_{package}=y" in config, f"Honk test package was lost: {package}")
+        require(f"CONFIG_PACKAGE_{package}=y" in config, f"Honk package was lost: {package}")
     require(not any(OLD_PROXY.fullmatch(name) for name in selected), "Old dae/daed package remains selected")
     require(bool({"dnsmasq", "dnsmasq-full"} & selected), "DHCP/local DNS service is missing")
     for symbol in ("CONFIG_KERNEL_DEBUG_INFO_BTF", "CONFIG_KERNEL_CGROUP_BPF", "CONFIG_KERNEL_NETKIT", "CONFIG_KERNEL_XDP_SOCKETS"):
@@ -63,7 +63,7 @@ def check(tree: Path, manifest: Path | None = None) -> None:
         for package in ("honk", "luci-app-honk"):
             expected = make_version(tree / "package/honk" / package / "Makefile")
             require(packages[package] == expected, f"Unexpected {package} version: {packages[package]}, expected {expected}")
-    print("Honk test validated: no dae/daed, dual ADH + DHCP retained, Honk/NFQUEUE selected.")
+    print("Honk firmware validated: no dae/daed, dual ADH + DHCP retained, Honk/NFQUEUE selected.")
 
 
 if __name__ == "__main__":

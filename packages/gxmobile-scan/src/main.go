@@ -372,6 +372,15 @@ func publishToWWW() error {
 	return nil
 }
 
+// The startup caller holds the on-disk lock from before loading the baseline.
+// Refresh URLs without probing the gateway or changing the last scan timestamp.
+func refreshWebPlaylist(base *Baseline) error {
+	if _, err := writePlaylist(base); err != nil {
+		return err
+	}
+	return publishToWWW()
+}
+
 func saveBaseline(b *Baseline, path string) error {
 	b.Updated = time.Now().Format(time.RFC3339)
 	b.Gateway = gateway
@@ -612,6 +621,14 @@ func main() {
 		os.Exit(1)
 	}
 	baselinePath = filepath.Join(outDir, "iptv_baseline.json")
+	var startupUnlock func()
+	if *web {
+		startupUnlock = acquireLock()
+		if startupUnlock == nil {
+			logf("扫描锁被占用，稍后重试启动")
+			os.Exit(1)
+		}
+	}
 	base := loadBaseline(baselinePath)
 	if *gw != "" {
 		gateway = strings.TrimRight(*gw, "/")
@@ -622,15 +639,11 @@ func main() {
 		os.Exit(2)
 	}
 	if *web {
-		if _, err := os.Stat(filepath.Join(outDir, "广西移动IPTV_去重版.m3u")); os.IsNotExist(err) {
-			if _, err := writePlaylist(base); err != nil {
-				logf("生成列表失败：%v", err)
-				os.Exit(1)
-			}
+		if err := refreshWebPlaylist(base); err != nil {
+			logf("初始化播放列表失败：%v", err)
+			os.Exit(1)
 		}
-		if err := publishToWWW(); err != nil {
-			logf("发布列表失败：%v", err)
-		}
+		startupUnlock()
 		runWeb(*addr, *auth, base)
 		return
 	}

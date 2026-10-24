@@ -117,7 +117,7 @@ def version_key(version: str) -> tuple:
         return ((0,), 1, version)
     numeric = tuple(int(part) for part in match.group("numeric").split("."))
     suffix = match.group("suffix")
-    return (numeric, 0 if not suffix else 1, suffix)
+    return (numeric, 1 if not suffix else 0, suffix)
 
 
 def numeric_version(version: str) -> tuple[int, ...]:

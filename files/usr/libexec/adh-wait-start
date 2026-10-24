@@ -26,11 +26,17 @@ host="$(awk '
 web_address_ready() {
   case "$host" in
     ''|0.0.0.0|::) return 0 ;;
+    *:*)
+      # Expanded all-zero IPv6 addresses are wildcard listeners too.
+      case "$host" in *[!0:]*) ;; *) return 0 ;; esac
+      prefix="$host/128"
+      ;;
+    *) prefix="$host/32" ;;
   esac
-  ip -o address show | awk -v host="$host" '
+  # ip-full compares numeric addresses, including compressed/expanded IPv6.
+  ip -o address show to "$prefix" | awk '
     $3 == "inet" || $3 == "inet6" {
-      split($4, address, "/")
-      if (address[1] == host && $0 !~ / tentative| dadfailed/) found=1
+      if ($0 !~ / tentative| dadfailed/) found=1
     }
     END { exit(found ? 0 : 1) }
   '
