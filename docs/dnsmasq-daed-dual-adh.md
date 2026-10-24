@@ -1,18 +1,22 @@
-# dnsmasq + daed + 双 AdGuardHome 实际方案
+# 历史参考：dnsmasq + daed + 双 AdGuardHome
 
-本文描述实机的 **daed** 方案。固件同时包含 dae/daed，当前构建选择
+> 本文只记录迁移前的 daed 部署，不是当前 master 的安装指南。当前固件已改为
+> [Honk](honk.md)，不再包含 dae/daed。当前双 ADH 模板和维护步骤见
+> [双 AdGuardHome 说明](adguardhome.md)。保留本文用于理解旧配置和回滚，不要直接套用旧代理规则。
+
+本文描述旧实机的 **daed** 方案。旧固件同时包含 dae/daed，当时构建选择
 `luci-app-daede` 的 dae 变体；这不代表实机正在使用 dae，也不意味着新装固件已配置好
 本文的节点和 DNS 分流。上游默认值不做本地修改。
 
 ```text
 LAN clients
   ↓ DNS :53
-dnsmasq
-  ↓ daed 透明 DNS 接管 / 分流
-daed DNS routing
+daed 透明 DNS 接管 / DNS routing
   ├─ geosite:private / geosite:cn → ADH-direct :50530 → ISP IPv4/IPv6 DNS
   └─ fallback / 国外域名          → ADH-proxy  :50531 → 经代理的 IPv4 DoH
                                                      └─ 上游失败 → ADH-direct
+
+.lan / 本地反查 → dnsmasq；DHCP 仍由 dnsmasq 提供
 ```
 
 > 本方案使用透明 DNS 接管，不暴露固定 `50500` listener；不要把 dnsmasq 直接改到

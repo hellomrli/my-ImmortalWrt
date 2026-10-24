@@ -6,7 +6,7 @@ or made private, so every third-party package is mirrored into
 hellomrli/my-openwrt-packages.  This script prefers that mirror and only falls
 back to the upstream repository for packages the mirror does not carry yet.
 
-Only the directories listed in packages.json are copied out of the mirror.  The
+Only directories listed in the explicit --config manifest are copied out. The
 mirror also holds packages this firmware deliberately does not build (golang,
 adguardhome-dual, openclash, passwall, ...); dropping the whole mirror into
 package/ would collide with feeds/packages/lang/golang and with this firmware's

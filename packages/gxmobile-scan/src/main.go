@@ -608,7 +608,6 @@ func main() {
 	flag.IntVar(&measureWorkers, "measure-workers", 2, "码率测量并发数 (1-4)")
 	flag.StringVar(&publishDir, "publish", "/www/gxmobile", "发布目录，空字符串禁用发布")
 	flag.Parse()
-	fixConsole()
 	var err error
 	defaultLo, defaultHi, err = parseRange(*rangeStr)
 	if err != nil || workers < 1 || workers > 16 || measureWorkers < 1 || measureWorkers > 4 {

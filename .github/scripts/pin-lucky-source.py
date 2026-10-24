@@ -19,7 +19,7 @@ Run this after the third-party packages are materialized and before
   bytes the vendor published (this firmware builds x86_64, but the map covers
   every architecture the Makefile knows about);
 * the service is unreachable -> keep the mirrored pin and let the download
-  stage decide, exactly like ``pin-daede-source.py`` does for dae/daed;
+  stage decide;
 * the service answers but no usable release exists -> fail, because silently
   building an unverified pin is worse than a two-minute failure.
 

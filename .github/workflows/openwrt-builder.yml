@@ -160,8 +160,8 @@ jobs:
           return 1
         }
         apt_retry -qq update
-        # Nothing in the build uses npm/pnpm (daed's Makefile only compiles Go;
-        # lucky ships a prebuilt binary), and --no-install-recommends keeps
+        # Nothing in the build uses npm/pnpm (Honk/Doona and Lucky ship release
+        # assets), and --no-install-recommends keeps
         # asciidoc from dragging in TeX.  Together that was ~670 packages and
         # 1.5-2.5 minutes, mktexlsr alone taking over a minute.
         apt_retry -qq install --no-install-recommends ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential bzip2 ccache clang cmake cpio curl device-tree-compiler fastjar flex gawk gettext gcc-multilib g++-multilib git gperf haveged help2man intltool libc6-dev-i386 libelf-dev libfuse-dev libglib2.0-dev libgmp-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libpython3-dev libreadline-dev libssl-dev libtool llvm genisoimage ninja-build p7zip p7zip-full patch pkgconf python3 python3-pyelftools python3-setuptools python3-yaml qemu-utils rsync scons squashfs-tools subversion swig texinfo upx-ucl unzip vim wget xmlto xxd zlib1g-dev zstd
@@ -175,6 +175,7 @@ jobs:
       run: |
         python3 .github/scripts/test-pin-lucky-source.py
         python3 .github/scripts/test-build-time-budget.py
+        python3 .github/scripts/test-repository-layout.py
 
     - name: Clone source code
       timeout-minutes: 10
@@ -191,7 +192,7 @@ jobs:
     # checker's commit markers, whose loss triggers pointless rebuilds.
     # Re-downloading sources costs minutes; a cold ccache costs hours.
     # Dropping dl/ also retires the go-mod-cache exclusion that kept poisoning
-    # daed builds with bogus "missing internal package" errors.
+    # Go package builds with bogus "missing internal package" errors.
     # Explicit restore/save instead of actions/cache: that action's post step is
     # post-if: success(), so a build that failed after two hours contributed
     # nothing and the retry started just as cold.
@@ -265,7 +266,7 @@ jobs:
 
     # golang-bootstrap otherwise compiles Go 1.4 -> 1.17 -> 1.20 -> 1.22 -> 1.24
     # from source before the real toolchain (golang1.26/1.27) can start, and
-    # dae, daed and AdGuardHome all wait behind it: 12-20 minutes per build.
+    # Go packages such as AdGuardHome wait behind it: 12-20 minutes per build.
     # Hand it an official Go of the same version instead.  The Go that packages
     # are built with is still compiled from source by the feed, so the firmware
     # does not change; only the throwaway bootstrap chain is skipped.
@@ -310,12 +311,6 @@ jobs:
 
     - name: Load custom configuration
       timeout-minutes: 30
-      env:
-        TARGET_BRANCH: ${{ matrix.branch }}
-        # Read-only use: resolving the rolling dae-src/daed-src release assets
-        # (see .github/scripts/pin-daede-source.py) needs the release metadata,
-        # and the unauthenticated API limit is shared with other runners.
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         cp -a "${{ matrix.files_dir || 'files' }}" openwrt/files
         cp "${{ matrix.config_file }}" openwrt/.config
@@ -378,48 +373,7 @@ jobs:
           echo "::error::Unused Ruby packages are still selected."
           exit 1
         fi
-        if [ "${{ matrix.profile }}" = honk ]; then
-          python3 "$GITHUB_WORKSPACE/.github/scripts/check-honk-profile.py" "$PWD"
-        else
-        echo "Checking kenzok8/openwrt-daede package selection..."
-        kenzok_dae_makefile="package/dae/dae/Makefile"
-        kenzok_daed_makefile="package/dae/daed/Makefile"
-        kenzok_luci_makefile="package/dae/luci-app-daede/Makefile"
-        for makefile in "$kenzok_dae_makefile" "$kenzok_daed_makefile" "$kenzok_luci_makefile"; do
-          if [ ! -s "$makefile" ]; then
-            echo "::error::kenzok8 package Makefile is missing: $makefile"
-            exit 1
-          fi
-        done
-        for conflicting_entry in \
-          package/feeds/packages/dae \
-          package/feeds/packages/daed \
-          package/feeds/luci/luci-app-daed \
-          package/feeds/luci/luci-app-daede; do
-          if [ -e "$conflicting_entry" ] || [ -L "$conflicting_entry" ]; then
-            echo "::error::Official/conflicting daede package entry still exists: $conflicting_entry"
-            exit 1
-          fi
-        done
-        for symbol in \
-          CONFIG_PACKAGE_dae \
-          CONFIG_PACKAGE_daed \
-          CONFIG_PACKAGE_luci-app-daede \
-          CONFIG_PACKAGE_luci-app-daede_dae; do
-          if ! grep -qx "${symbol}=y" .config; then
-            echo "::error::${symbol} is not enabled after make defconfig."
-            exit 1
-          fi
-        done
-        if grep -Eq '^CONFIG_PACKAGE_(luci-app-daed|daed-(geoip|geosite))=y$' .config; then
-          echo "::error::Old official daed/LuCI packages are still enabled."
-          grep -E '^CONFIG_PACKAGE_(luci-app-daed|daed-(geoip|geosite))=y$' .config
-          exit 1
-        fi
-        grep -E '^(PKG_NAME|PKG_VERSION|PKG_RELEASE):=' "$kenzok_dae_makefile"
-        grep -E '^(PKG_NAME|PKG_VERSION|PKG_RELEASE):=' "$kenzok_daed_makefile"
-        grep -E '^(PKG_NAME|PKG_VERSION|PKG_RELEASE):=' "$kenzok_luci_makefile"
-        fi
+        python3 "$GITHUB_WORKSPACE/.github/scripts/check-honk-profile.py" "$PWD"
         if ! grep -qx '# CONFIG_GOLANG_BUILD_BOOTSTRAP is not set' .config ||
            ! grep -q '^CONFIG_GOLANG_EXTERNAL_BOOTSTRAP_ROOT="/' .config; then
           echo "::error::The external Go bootstrap was dropped by defconfig; golang-bootstrap would rebuild Go from 1.4."
@@ -586,9 +540,8 @@ jobs:
           # what happened: include/toplevel.mk runs the download dirs in one shell
           # loop (`@+$(foreach dir,$(DOWNLOAD_DIRS),$(SUBMAKE) $(dir);)`), so the
           # exit status is the one of target/download and a 404 in package/ is
-          # swallowed.  That is how a dead dae source stayed invisible for the
-          # whole toolchain+target phase and only exploded two hours later in the
-          # compile stage.  Repeat the dirs one by one to get a real status.
+          # swallowed until the compile stage. Repeat the dirs one by one to
+          # get a real status before spending time on the toolchain build.
           make download -j"$(nproc)" || true
           download_failed=""
           for dir in tools toolchain package target; do
@@ -632,7 +585,7 @@ jobs:
         cd openwrt
         clean_go_caches() {
           rm -rf dl/go-mod-cache tmp/go-build
-          rm -rf build_dir/target-*/daed-* build_dir/target-*/AdGuardHome-* build_dir/target-*/adguardhome-*
+          rm -rf build_dir/target-*/AdGuardHome-* build_dir/target-*/adguardhome-*
         }
 
         echo "$(nproc) thread compile"
@@ -819,43 +772,19 @@ jobs:
           echo "::error::Unused Ruby packages are still present in the firmware."
           exit 1
         fi
-        if [ "${{ matrix.profile }}" = honk ]; then
-          python3 "$GITHUB_WORKSPACE/.github/scripts/check-honk-profile.py" ../../../.. --manifest "$manifest"
-          # Kernel modules are in the target repository, not the per-feed repositories.
-          for pkg in honk luci-app-honk kmod-nft-queue kmod-nfnetlink-queue; do
-            package_file=""
-            for package_dir in ./packages ../../../packages; do
-              [ -d "$package_dir" ] || continue
-              package_file="$(find "$package_dir" -type f -name "${pkg}-*.apk" -print -quit)"
-              [ -z "$package_file" ] || break
-            done
-            [ -n "$package_file" ] || { echo "::error::No installable APK for $pkg"; exit 1; }
-            cp "$package_file" .
-            sha256sum "$(basename "$package_file")" >> sha256sums
+        python3 "$GITHUB_WORKSPACE/.github/scripts/check-honk-profile.py" ../../../.. --manifest "$manifest"
+        # Kernel modules are in the target repository, not the per-feed repositories.
+        for pkg in honk luci-app-honk kmod-nft-queue kmod-nfnetlink-queue; do
+          package_file=""
+          for package_dir in ./packages ../../../packages; do
+            [ -d "$package_dir" ] || continue
+            package_file="$(find "$package_dir" -type f -name "${pkg}-*.apk" -print -quit)"
+            [ -z "$package_file" ] || break
           done
-        else
-        echo "Checking kenzok8/openwrt-daede versions in firmware manifest..."
-        kenzok_dae_version="$(sed -n 's/^PKG_VERSION:=//p' ../../../../package/dae/dae/Makefile | head -n 1)"
-        kenzok_daed_version="$(sed -n 's/^PKG_VERSION:=//p' ../../../../package/dae/daed/Makefile | head -n 1)"
-        kenzok_luci_version="$(sed -n 's/^PKG_VERSION:=//p' ../../../../package/dae/luci-app-daede/Makefile | head -n 1)"
-        for spec in \
-          "dae|$kenzok_dae_version" \
-          "daed|$kenzok_daed_version" \
-          "luci-app-daede|$kenzok_luci_version"; do
-          pkg="${spec%%|*}"
-          version="${spec#*|}"
-          if [ -z "$version" ] || ! grep -E "^${pkg}[[:space:]]" "$manifest" | grep -Fq "$version"; then
-            echo "::error::Firmware manifest does not contain kenzok8 ${pkg} ${version:-unknown}."
-            grep -E "^${pkg}[[:space:]]" "$manifest" || true
-            exit 1
-          fi
+          [ -n "$package_file" ] || { echo "::error::No installable APK for $pkg"; exit 1; }
+          cp "$package_file" .
+          sha256sum "$(basename "$package_file")" >> sha256sums
         done
-        if grep -Eq '^(luci-app-daed|daed-(geoip|geosite))[[:space:]]' "$manifest"; then
-          echo "::error::Firmware manifest still contains old official daed/LuCI packages."
-          grep -E '^(luci-app-daed|daed-(geoip|geosite))[[:space:]]' "$manifest"
-          exit 1
-        fi
-        fi
         fi
         rm -rf packages
         cp -f ../../../../.config "${{ matrix.source }}-${{ matrix.branch }}.config" 2>/dev/null || true
@@ -917,49 +846,12 @@ jobs:
         不要同时运行 daed 和 Honk。升级前备份配置和虚拟机磁盘。
 
         推荐镜像：squashfs-combined-efi.img.gz。本工作流不会刷写路由器。
-        文档：https://github.com/hellomrli/my-ImmortalWrt/blob/main/docs/honk-test.md
+        文档：https://github.com/hellomrli/my-ImmortalWrt/blob/main/docs/honk.md
         NOTES
           echo "status=success" >> "$GITHUB_OUTPUT"
         else
-        touch release.txt
-        echo "📦 **ImmortalWrt x86_64 固件**" >> release.txt
-        echo "" >> release.txt
-        echo "🔹 **镜像名**: \`${{ matrix.source }}\`" >> release.txt
-        echo "🔹 **上游**: ImmortalWrt" >> release.txt
-        echo "🔹 **分支**: \`${{ matrix.branch }}\`" >> release.txt
-        echo "🔹 **Dae / Daed / LuCI 源**: \`kenzok8/openwrt-daede\`（经 \`hellomrli/my-openwrt-packages\` 镜像）" >> release.txt
-        echo "🔹 **ADH 运行时**: \`adguardhome\`（双实例，不使用 luci-app-adguardhome）" >> release.txt
-        echo "🔹 **Golang**: ImmortalWrt 官方 \`packages/lang/golang\`（Go 1.26.x）" >> release.txt
-        echo "🔹 **构建日期**: $(date '+%Y-%m-%d %H:%M:%S')" >> release.txt
-        echo "" >> release.txt
-        echo "### 默认配置" >> release.txt
-        echo "- IP: 192.168.50.1" >> release.txt
-        echo "- 用户名: root" >> release.txt
-        echo "- 密码: 无（首次登录需设置）" >> release.txt
-        echo "" >> release.txt
-        echo "### 已集成组件" >> release.txt
-        echo "- dae + daed + luci-app-daede（双后端统一管理）" >> release.txt
-        echo "- 官方 AdGuardHome + 双实例配置：adh-direct / adh-proxy" >> release.txt
-        echo "- Lucky" >> release.txt
-        echo "- Watchdog" >> release.txt
-        echo "- SQM / UPnP" >> release.txt
-        echo "- openssh-sftp-server" >> release.txt
-        if [ -s openwrt/package-provenance.txt ]; then
-          echo "" >> release.txt
-          echo "### 第三方包来源" >> release.txt
-          echo '```' >> release.txt
-          cat openwrt/package-provenance.txt >> release.txt
-          echo '```' >> release.txt
-        fi
-        echo "" >> release.txt
-        echo "📖 [完整文档](https://github.com/hellomrli/my-ImmortalWrt/blob/main/README.md)" >> release.txt
-        echo "" >> release.txt
-        echo "### 下载建议" >> release.txt
-        echo "- PVE / x86_64 软路由优先使用 \`squashfs-combined-efi.img.gz\`" >> release.txt
-        echo "- Legacy BIOS 环境使用 \`squashfs-combined.img.gz\`" >> release.txt
-        echo "- 升级前运行：\`my-sysupgrade-backup\`，并把生成的压缩包复制到电脑/NAS" >> release.txt
-        echo "- 本仓库不再构建或发布 ext4 combined 镜像" >> release.txt
-        echo "status=success" >> $GITHUB_OUTPUT
+          echo "::error::Unsupported firmware profile; refusing to publish."
+          exit 1
         fi
 
     - name: Upload to release

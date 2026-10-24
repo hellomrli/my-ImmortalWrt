@@ -1,6 +1,6 @@
 {
   "_comment": [
-    "Packages used only by the IPTV firmware profile; master uses packages.json unchanged."
+    "Packages for the IPTV firmware profile; master uses packages-honk.json."
   ],
   "mirror": {
     "repo": "https://github.com/hellomrli/my-openwrt-packages.git",
@@ -18,7 +18,7 @@
         "lucky/Makefile",
         "luci-app-lucky/Makefile"
       ],
-      "note": "LuCI 界面跟随上游（已是 3.0.0）；lucky 核心从 3.x 起闭源，只在 https://release.66666.host/ 发布。镜像用 overrides/luci-app-lucky/lucky/Makefile 固定核心包，构建前由 .github/scripts/pin-lucky-source.py 对齐官方最新发布与逐架构 sha256。"
+      "note": "LuCI 界面跟随上游，版本号独立于核心；lucky 核心从 3.x 起闭源，只在 https://release.66666.host/ 发布。镜像用 overrides/luci-app-lucky/lucky/Makefile 固定核心包，构建前由 .github/scripts/pin-lucky-source.py 对齐官方最新发布与逐架构 sha256。"
     }
   ]
 }

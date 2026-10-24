@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""IPTV-only release notes; keep the original master release text unchanged."""
+"""Generate release notes for the independent IPTV firmware target."""
 from datetime import datetime
 import os
 from pathlib import Path

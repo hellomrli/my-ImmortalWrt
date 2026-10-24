@@ -15,14 +15,22 @@ DNS 分流**，并保留常用管理、QoS、UPnP、SFTP 和虚拟化组件。ma
 运行状态，上游默认值不做本地修改。
 
 构建目标为 **master** 和 **iptv**，都使用 ImmortalWrt 上游最新 `master` 源码。
-master 固件的软件选择、网络配置和预置文件保持不变，仅把代理核心切换为 Honk + Doona；
-`openwrt-25.12` 已停止构建。`iptv` 是独立固件目标，面向 `192.168.50.250` 的专用 IPTV
-转发设备，详见 [IPTV 说明](docs/iptv.md)。
+仓库代码维护在 Git 分支 `main`；这里的 `master` / `iptv` 是固件目标，不是本仓库的代码分支。
+`master` 使用 Honk + Doona，`iptv` 面向 `192.168.50.250` 的独立 IPTV 转发设备，
+详见 [Honk 说明](docs/honk.md) 和 [IPTV 说明](docs/iptv.md)。旧 `test` 与 `openwrt-25.12`
+目标均已停止构建，旧 dae/daed 构建文件已清理；历史版本可从 Git 历史和已有 Release 查询。
 
 | 固件 | 上游分支 | 推荐下载 |
 | --- | --- | --- |
 | `immortalwrt-master` | ImmortalWrt `master`，Honk + NFQUEUE | `squashfs-combined-efi.img.gz` |
 | `immortalwrt-iptv` | ImmortalWrt `master`，IPTV 专用配置 | `squashfs-combined-efi.img.gz` |
+
+构建入口以 [`.github/targets.json`](.github/targets.json) 为准：
+
+| 目标 | 配置 | 第三方包清单 | 自定义脚本 / 预置文件 |
+| --- | --- | --- | --- |
+| `master` | [`configs/honk.config`](configs/honk.config) | [`.github/packages-honk.json`](.github/packages-honk.json) | [`diy-part2-honk.sh`](diy-part2-honk.sh) / [`files/`](files) |
+| `iptv` | [`configs/iptv.config`](configs/iptv.config) | [`.github/packages-iptv.json`](.github/packages-iptv.json) | [`diy-part2-iptv.sh`](diy-part2-iptv.sh) / [`profiles/iptv/files/`](profiles/iptv/files) |
 
 ## 当前构建概览
 
@@ -53,7 +61,7 @@ master 固件的软件选择、网络配置和预置文件保持不变，仅把�
 
 > 分区尺寸会直接影响升级行为，详见 [配置保留与升级](#配置保留与升级)。
 
-## 固件特性
+## master 固件特性
 
 - 基于 ImmortalWrt x86_64，适合 PVE、QEMU 和常规 x86 软路由。
 - 默认 LAN IP 为 `192.168.50.1`，避免和常见上级路由 `192.168.1.1` 冲突。
@@ -69,7 +77,7 @@ master 固件的软件选择、网络配置和预置文件保持不变，仅把�
 - 修正上游 PPPoE 脚本在未安装可选 `syncdial` 配置时产生的误导性重连报错。
 - Release 附带最终 `.config`、kernel `.config` 和第三方包来源清单。
 
-## 主要组件
+## master 主要组件
 
 ### LuCI / 管理
 
@@ -138,9 +146,9 @@ YAML 的 `users`。
 资源随上游 release 一起镜像并 SHA256 锁定。DNS 分流（`adh_direct` / `adh_proxy`）和节点配置由 Honk 面板维护，
 `/etc/config/honk` 与 `/etc/honk/` 在 sysupgrade 时随 keep.d 保留。旧 dae / daed 配置
 仍保留在设备上用于回滚，但新固件不再包含其程序。Honk 与 NFQUEUE 的细节见
-[Honk 说明](docs/honk-test.md)。
+[Honk 说明](docs/honk.md)。
 
-daed 时代的 DNS/ADH 方案仍可参考 [`docs/dnsmasq-daed-dual-adh.md`](docs/dnsmasq-daed-dual-adh.md)。
+当前双 ADH 的模板、启动、维护和验证方法见 [双 AdGuardHome 说明](docs/adguardhome.md)。
 当前新装模板的 ADH-proxy 使用四个 IPv4 DoH 上游、`upstream_timeout: 3s`，并暂时禁用国外 AAAA；
 ADH-direct 保留双栈。代理 DNS 上游失败时会兜底到本机 ADH-direct，查询随后走 ISP 明文
 DNS，不再保证全程加密，也不保证国外域名解析或代理业务恢复。3s 不是端到端耗时上限。
@@ -158,13 +166,15 @@ DNS，不再保证全程加密，也不保证国外域名解析或代理业务�
 | `lucky` / `luci-app-lucky` | `luci-app-lucky` | `gdy666/luci-app-lucky`（LuCI 界面）+ [官方文件服务](https://release.66666.host/)（核心包） |
 | `watchdog` / `luci-app-watchdog` | `luci-app-watchdog` | `sirpdboy/luci-app-watchdog` |
 
-包清单是 [`.github/packages-honk.json`](.github/packages-honk.json)，由
+master 使用 [`.github/packages-honk.json`](.github/packages-honk.json)，IPTV 使用
+[`.github/packages-iptv.json`](.github/packages-iptv.json)，由
 [`.github/scripts/fetch-packages.py`](.github/scripts/fetch-packages.py) 在构建时落地：
 
 - **只抽取清单列出的子目录**，不整仓克隆进 `package/`。镜像同时保存了本固件不编译的包
   （`golang`、`adguardhome-dual`、`openclash`、`passwall` 等），整仓引入会与
   `feeds/packages/lang/golang` 及本固件基于 overlay 的双 ADH 方案冲突。
-- **镜像优先、上游兜底**：镜像不可达或尚未收录某包时回退直连上游并打印 `::warning::`，构建不中断。
+- **镜像优先、按包兜底**：非 mirror-only 包在镜像不可达或未收录时尝试上游并告警；
+  Honk 不回退上游，普通包的上游也不可用时同样会构建失败。
 - 落地后校验每个包的必需 `Makefile`，并把实际来源和 commit 写入 `package-provenance.txt`，
   随 Release 发布为 `*_packages.txt`。
 
@@ -188,18 +198,24 @@ v2.27.2，新版本只在官方文件服务 [`release.66666.host`](https://relea
 回写 `PKG_VERSION` / `PKG_SOURCE_URL` 和逐架构哈希表（未列出的架构退回 `skip`，由
 `make download` 自行判定），并打印实际使用的版本。服务不可达时保留镜像里的 pin，交给
 `make download`；镜像没能给出指向该服务的 Makefile 时直接失败，不会静默退回 2.27.2。
-LuCI 界面仍跟随上游同步（已是 3.0.0，与官方发布的 `luci-app-lucky-3.0.0-r1.apk` 同版本；
-`lucky-call` 用到的 `-info` / `-baseConfInfo` / `-setconf` 接口在 3.1.4 二进制上实测可用）。
-需要钉住某个版本时设置 `LUCKY_VERSION=3.1.4`，其余仍按官方最新。
+LuCI 界面和 Lucky 核心使用独立版本号，不要求两者一致；具体版本、来源和哈希以每次
+Release 的包清单与 `*_packages.txt` 为准。
+需要钉住某个版本时设置 `LUCKY_VERSION=3.1.4`。同一数字版本优先正式版；若只有 beta/rc
+仍可选择，更高数字版本的预发布也不会被自动排除，不等于“仅使用稳定版”。
 
-上游改动打断构建时，把 `.github/packages.json` 的 `mirror.ref` 从 `main` 改成某个已知可用的
-commit SHA，即可一次性冻结全部第三方包。也可用环境变量临时覆盖：
+上游改动打断构建时，在**对应目标的包清单**中把 `mirror.ref` 固定到已知可用的 commit SHA，
+并设置 `PKG_SOURCE=mirror`，避免镜像失败时回退到未固定的上游。这会固定包定义及 Honk 的
+配套资源清单；Lucky 核心仍会独立解析官方发布，需另设 `LUCKY_VERSION`。
+也可在构建工作流的 `env` 或本地执行 DIY 脚本的环境中设置以下变量（不是 Run workflow 输入）：
 
 ```sh
-PKG_MIRROR_REF=<commit>  # 冻结镜像版本
-PKG_SOURCE=upstream      # 绕过镜像直连上游
-PKG_SOURCE=mirror        # 强制只用镜像，缺包即失败
+PKG_MIRROR_REF=<commit>  # 覆盖所选清单的 mirror.ref
+PKG_SOURCE=mirror       # 强制只用镜像，缺包即失败
+LUCKY_VERSION=3.1.4     # 独立固定 Lucky 核心数字版本
 ```
+
+`PKG_SOURCE=upstream` 仅适用于允许上游兜底的包清单（如 IPTV）；master 含 mirror-only 的
+Honk，使用该模式会拒绝构建。
 
 ## 构建流水线
 
@@ -209,8 +225,9 @@ PKG_SOURCE=mirror        # 强制只用镜像，缺包即失败
 独立的 `configs/iptv.config` 和校验脚本，恢复地址为 `.250`，不要求透明代理的 BPF 组件。最终完整
 `.config` 随 Release 发布。Ruby 及其标准库不再预装，`qemu-ga` 所需的 GLib 依赖保留。
 
-内核配置附件只从 `build_dir/target-*/linux-x86_64/linux-*/.config` 导出，并校验
-x86_64、BPF/BTF、XDP、FQ 和 BBR，避免误发布 BPF headers 辅助构建的 MIPS 配置。
+内核配置附件只从 `build_dir/target-*/linux-x86_64/linux-*/.config` 导出。两个目标均校验
+x86_64、FQ 和 BBR；master 额外校验 BPF/BTF、NETKIT、XDP 和 NFQUEUE，IPTV 不要求这些
+透明代理组件。不会误发布 BPF headers 辅助构建的 MIPS 配置。
 
 GitHub 托管 runner 有几条硬性限制，流水线是围绕它们设计的：
 
@@ -233,11 +250,14 @@ GitHub 托管 runner 有几条硬性限制，流水线是围绕它们设计的�
   （那在 6 小时内不可能完成）。
 - Update Checker 每 6 小时比对上游 commit；「已构建」标记在**发布成功后**才写入，
   因此构建失败会在下次检查时重试，而不是等上游再次提交。
-- 每个分支保留最近 5 个 Release、最近 20 条运行记录。
+- 每个固件目标保留最近 5 个 Release；`OpenWrt Builder` 工作流共保留最近 20 条运行记录，
+  不是每个目标各 20 条。
 
 手动触发：Actions → `OpenWrt Builder` → Run workflow，`branches` 填 `master`、`iptv` 或 `all`。
 两者的缓存、更新检查和 Release 标签独立；IPTV 从 `profiles/iptv/files` 加载自己的预置文件，
 包含 Lucky、`luci-app-gxmobile`、BBR/fq 和扫描数据保留规则，不混入 master 的代理/DNS 服务。
+构建表仅显示已经发布的固件，不代表当前任务状态；实时进度请查看
+[Actions](https://github.com/hellomrli/my-ImmortalWrt/actions/workflows/openwrt-builder.yml)。
 
 ## 性能调优
 
@@ -316,8 +336,8 @@ uci get firewall.@defaults[0].flow_offloading
 
 ### 结论
 
-**用保留配置的方式升级，现有设置不会被清空。** 但 x86 combined 镜像的升级机制有一个前提
-需要清楚：配置是靠 **sysupgrade 备份压缩包**存活的，不是靠 overlay 分区原地保留。
+**保留配置升级只恢复进入 sysupgrade 备份压缩包的内容，不等于保留整个 overlay。**
+以下保留清单与 ADH 检查以 master 为例；IPTV 请同时阅读 [IPTV 备份说明](docs/iptv.md)。
 
 x86 的 `platform_do_upgrade` 在镜像分区表与当前磁盘不一致时，会 `dd` **整盘**覆盖——
 包括 overlay 分区。分区表一致时才逐分区写入。本固件为 256 MiB 内核 + 2048 MiB 根分区；
@@ -334,9 +354,9 @@ overlay 文件不会遮蔽后续规则更新；`/etc/sysupgrade.conf` 留给你�
 | 数据 | 实际路径 | 覆盖方式 |
 | --- | --- | --- |
 | Honk 配置/状态 | `/etc/config/honk`、`/etc/honk/` | keep.d |
-| 旧 dae 配置（回滚用） | `/etc/config/dae`、`/etc/dae/`（含 `config.dae`、`subscriptions`） | keep.d + 包 conffiles |
-| 旧 daed 数据库（回滚用） | `/etc/config/daed`、`/etc/daed/`（含 `wing.db`） | keep.d + 包 conffiles |
-| 旧 daede 管理界面（回滚用） | `/etc/config/daede` | keep.d + 包 conffiles |
+| 旧 dae 配置（回滚用） | `/etc/config/dae`、`/etc/dae/`（含 `config.dae`、`subscriptions`） | keep.d（旧数据存在时） |
+| 旧 daed 数据库（回滚用） | `/etc/config/daed`、`/etc/daed/`（含 `wing.db`） | keep.d（旧数据存在时） |
+| 旧 daede 管理界面（回滚用） | `/etc/config/daede` | keep.d（旧数据存在时） |
 | Lucky | `/etc/config/lucky` + 数据目录 `/etc/config/lucky.daji/` | keep.d |
 | Watchdog | `/etc/config/watchdog` | keep.d |
 | 双 AdGuardHome 设置 | `/etc/AdGuardHome-direct.yaml`、`-proxy.yaml` | keep.d |

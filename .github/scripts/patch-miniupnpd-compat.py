@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Work around known stale miniupnpd 2.3.11 feed patches, only for Honk test."""
+"""Work around known stale miniupnpd 2.3.11 feed patches in the Honk profile."""
 
 import argparse
 import hashlib

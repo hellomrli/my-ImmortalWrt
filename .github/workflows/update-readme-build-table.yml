@@ -23,7 +23,7 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v7
       with:
-        # Release events run on refs/tags/<tag>; update README on main instead.
+        # Always update the maintained branch, including manual dispatches.
         ref: main
         fetch-depth: 0
 

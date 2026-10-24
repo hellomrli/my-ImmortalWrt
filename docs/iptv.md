@@ -2,7 +2,7 @@
 
 `iptv` 是本仓库的固件构建目标，源码分支为 ImmortalWrt 上游最新 `master`。
 仓库代码仍统一维护在 `main`，无需在上游寻找名为 `iptv` 的分支。
-原 `master` 固件的配置、DIY 脚本、代理/DNS 预置文件保持不变，`25.12` 不再进入构建或更新检查。
+它与 [master/Honk](honk.md) 使用独立的构建配置、包清单和预置文件，不引入主路由的代理/DNS 服务。
 
 | 项目 | IPTV 配置 |
 | --- | --- |
@@ -49,7 +49,8 @@ http://192.168.50.250/gxmobile/广西移动IPTV_去重版.m3u
 ## 数据保护与边界
 
 - 持久化数据位于 `/etc/gxmobile`，包括频道命名、信号源、M3U 和报告；UCI 设置位于 `/etc/config/gxmobile`。
-- `/www/gxmobile` 是发布副本，后台启动时从持久化文件恢复，不依赖备份这个目录。
+- `/www/gxmobile` 是发布副本，不需要单独备份。后台启动时按当前网关和持久化基线重建 M3U，
+  同步最近报告；更换网关后无需重新扫描，不会因此改变最近扫描时间。
 - 探测异常、全部失败，或范围内超过一半已有在线源失联时，中止更新并保留原列表。
 - 只把明确的 HTTP 404/410 当成不存在；200 响应必须是 M3U 内容，登录页或错误页不会当成频道。
 - 每个输出文件通过同目录临时文件写完后原子替换；写入错误会报告失败。这不是多个文件之间的数据库事务。
@@ -107,7 +108,7 @@ logread | grep iptv-perf
 
 Actions → OpenWrt Builder → Run workflow，`branches` 填 `iptv`（只编译 IPTV）或 `all`。
 Release 标签为 `immortalwrt-iptv-*`，同时附带两个可独立安装的 APK。
-更新检查使用上游 `master` commit，但与原 master 固件分别记录发布成功标记。
+更新检查使用上游 `master` commit，但与 master/Honk 固件分别记录发布成功标记。
 
 源码目录：`packages/gxmobile-scan` 和 `packages/luci-app-gxmobile`。
 把两个目录复制到 OpenWrt 源码树的 `package/` 下，安装 packages/luci feeds 后选择组件：
@@ -118,25 +119,20 @@ make package/gxmobile-scan/compile V=s
 make package/luci-app-gxmobile/compile V=s
 ```
 
-针对这台现有 APK 固件，也可只安装本次生成的组件，不升级内核：
+已有兼容的 x86_64 APK 固件可只安装组件，不升级内核；先从 Release 下载对应文件，核对
+SHA256 并上传到 `/tmp`（文件名随版本更新，以下以 `1.2.0-r3` 为例）：
 
 ```sh
 apk add --no-network --allow-untrusted /tmp/gxmobile-scan-1.2.0-r3.apk /tmp/luci-app-gxmobile-1.2.0-r3.apk
 ```
 
 本地包未签名；只对自行构建/核对过的这两个文件使用 `--allow-untrusted`。
-旧路由器已具备 curl、BusyBox flock、rpcd/ucode 依赖；新固件会一并编译相应工具。
+独立安装前应确认设备满足 curl、flock、rpcd/ucode 等依赖；新固件会一并编译相应工具。
 
 ## 首次升级前备份
 
-扫描程序原始二进制、原有配置和原始源码已保存在本机私有目录
-`/home/lain/codex/iptv-router-backup-20261007`。此目录包含设备私有数据，不进入 Git 仓库。
-原始源码来自 `/home/lain/codex/gxmobile-scan`；其中预编译二进制与路由器上的程序 SHA256 相同。
-
-组件安装后另已生成并下载完整备份：
-`/home/lain/codex/iptv-router-backup-20261007/sysupgrade-after-plugin-20261007.tar.gz`，
-已核验拨号配置、Lucky 规则、频道基线、扫描计划、账户文件和软件包清单均在归档中。
-此后若修改配置，刷机前仍需重新备份。
+仓库不包含设备拨号信息、Lucky 私有规则、账户密钥或 sysupgrade 备份。维护者曾为原始设备
+单独归档源码、程序和配置，但这些私有历史备份不能代替你当前设备的备份。
 
 **第一次升级前，必须用旧系统自己的工具生成可恢复的完整 sysupgrade 备份。**
 新的 keep.d 规则不能追溯保护已经开始的升级：
@@ -148,8 +144,8 @@ tar -tzf /tmp/iptv-before-upgrade.tar.gz | grep -E 'etc/(config/(network|lucky|g
 
 确认里面包含 `etc/config/network`、`etc/config/lucky.daji/`、`etc/gxmobile/iptv_baseline.json`、
 `etc/config/gxmobile`、`etc/crontabs/root`，并把压缩包复制到电脑或 NAS。
-本次本地“原始配置归档”方便审计和回滚组件，不代替包含账户/密钥等全部内容的 sysupgrade 备份。
+只有确认备份包含当前账户、密钥及业务配置，并已下载到外部设备后，才继续升级。
 
 新固件继续使用 256 MiB 内核分区、2048 MiB 根分区和 squashfs/F2FS overlay。
 刷写前先 `sysupgrade -T` 检查镜像，升级使用保留配置模式，不能把 rootfs.tar.gz 当作升级镜像。
-本次工作没有执行刷机或重启路由器。
+GitHub Actions 只构建和发布固件，不会刷机或重启路由器。

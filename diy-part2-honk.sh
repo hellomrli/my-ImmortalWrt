@@ -28,7 +28,7 @@ for name in paths:
         shutil.rmtree(path)
 PY
 
-python3 "$repo_root/.github/scripts/patch-test-feed-compat.py" "$PWD"
+python3 "$repo_root/.github/scripts/patch-miniupnpd-compat.py" "$PWD"
 python3 "$repo_root/.github/scripts/fetch-packages.py" \
     --config "$repo_root/.github/packages-honk.json" \
     --tree "$PWD" --provenance "$PWD/package-provenance.txt"
@@ -39,7 +39,7 @@ python3 "$repo_root/.github/scripts/pin-lucky-source.py" \
 
 [ -d feeds/packages/lang/golang ] || { echo 'ERROR: official Golang feed is missing' >&2; exit 1; }
 
-# Change only the staged test overlay, never the production files/ directory.
+# Add Honk retention only to the staged OpenWrt overlay, not the shared source.
 for path in /etc/config/honk /etc/honk; do
     grep -qx "$path" files/lib/upgrade/keep.d/my-immortalwrt || \
         echo "$path" >> files/lib/upgrade/keep.d/my-immortalwrt
@@ -61,15 +61,10 @@ path.write_text('\n'.join(lines) + '\n')
 PY
 
 mkdir -p package/base-files/files/etc
-if [ "${TARGET_BRANCH:-master}" = test ]; then
-    BUILD_DESC="TEST: ImmortalWrt master x86_64 for PVE, default IP 192.168.50.1"
-else
-    BUILD_DESC="ImmortalWrt master x86_64 for PVE (Honk), default IP 192.168.50.1"
-fi
 cat > package/base-files/files/etc/openwrt_release_custom <<RELEASE
 BUILD_DATE="$(date '+%Y%m%d%H%M')"
 BUILD_REPO="hellomrli/my-ImmortalWrt"
-BUILD_DESC="${BUILD_DESC}"
+BUILD_DESC="ImmortalWrt master x86_64 for PVE (Honk), default IP 192.168.50.1"
 BUILD_PLUGINS="Honk+Doona+NFQUEUE+Dual-AdGuardHome+Lucky+Watchdog+SFTP"
 RELEASE
 cat package-provenance.txt

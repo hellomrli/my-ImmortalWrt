@@ -29,7 +29,7 @@ def load(name):
 profile = load("check-honk-profile")
 source = load("fetch-honk-source")
 kernel = load("export-kernel-config")
-compat = load("patch-test-feed-compat")
+compat = load("patch-miniupnpd-compat")
 
 
 class HonkTests(unittest.TestCase):

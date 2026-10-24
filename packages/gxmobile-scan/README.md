@@ -2,9 +2,9 @@
 
 Guangxi Mobile IPTV scanner for the x86_64 OpenWrt/ImmortalWrt IPTV profile.
 
-The original Go source was recovered from `/home/lain/codex/gxmobile-scan`.
-Its `releases/prebuilt/gxmobile-scan-linux` binary matches the router's
-`gxmobile-scan` 1.1.0-r2 byte-for-byte. The installed package declares MIT.
+The original Go source was recovered from the maintainer's local archive.
+Its prebuilt Linux binary matches the original router's `gxmobile-scan`
+1.1.0-r2 byte-for-byte. The installed package declares MIT.
 The original source and router files are archived separately; this directory
 contains the maintained source, not a binary blob or device credentials.
 
