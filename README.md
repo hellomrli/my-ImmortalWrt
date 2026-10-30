@@ -38,7 +38,7 @@ DNS 分流**，并保留常用管理、QoS、UPnP、SFTP 和虚拟化组件。ma
 | 构建目标 | 构建状态 | 最新版本 | 发布时间 | Release | 推荐下载 |
 |----------|----------|----------|----------|---------|----------|
 | ImmortalWrt `master`（Honk） | 已发布 | `immortalwrt-master-2026.10.30-2320` | 2026-10-30 23:20 CST | [下载](https://github.com/hellomrli/my-ImmortalWrt/releases/tag/immortalwrt-master-2026.10.30-2320) | `squashfs-combined-efi.img.gz` |
-| ImmortalWrt `iptv`（上游 master） | 已发布 | `immortalwrt-iptv-2026.10.30-2145` | 2026-10-30 21:45 CST | [下载](https://github.com/hellomrli/my-ImmortalWrt/releases/tag/immortalwrt-iptv-2026.10.30-2145) | `squashfs-combined-efi.img.gz` |
+| ImmortalWrt `iptv`（上游 master） | 已发布 | `immortalwrt-iptv-2026.10.31-0001` | 2026-10-31 00:01 CST | [下载](https://github.com/hellomrli/my-ImmortalWrt/releases/tag/immortalwrt-iptv-2026.10.31-0001) | `squashfs-combined-efi.img.gz` |
 
 > 此表由 GitHub Actions 自动更新；新 Release 发布后会同步最新版本和链接。
 <!-- BUILD_TABLE_END -->
