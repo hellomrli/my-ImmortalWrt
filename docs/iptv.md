@@ -1,5 +1,7 @@
 # IPTV 专用固件与 LuCI 扫描组件
 
+[返回文档入口](index.md)
+
 `iptv` 是本仓库的固件构建目标，源码分支为 ImmortalWrt 上游最新 `master`。
 仓库代码仍统一维护在 `main`，无需在上游寻找名为 `iptv` 的分支。
 它与 [master/Honk](honk.md) 使用独立的构建配置、包清单和预置文件，不引入主路由的代理/DNS 服务。

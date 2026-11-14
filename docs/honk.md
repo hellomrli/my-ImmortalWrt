@@ -1,5 +1,7 @@
 # Honk 固件
 
+[返回文档入口](index.md)
+
 `master` 固件使用 ImmortalWrt **上游 master** 源码，并用 Honk + Doona 替代
 dae / daed / luci-app-daede，同时编入 NFQUEUE 内核模块。网络基线、双 AdGuardHome、
 dnsmasq DHCP、Lucky、Watchdog 和 F2FS 恢复支持保持不变。
@@ -77,13 +79,9 @@ miniupnpd 2.3.11 已包含旧 020/030 补丁的修复，只移除哈希已知的
 保留上游已重新适配的 040 日志补丁及 IGD/XML 兼容补丁。不降级 miniupnpd、不移除其上游安全修复；
 未知版本或待移除补丁的改动不会被盲目套用。
 
-## 构建
+## 构建与升级入口
 
-master 固件：
-
-```sh
-gh workflow run openwrt-builder.yml --ref main -f sources=immortalwrt -f branches=master
-```
+按 [构建指南](building.md) 触发 master 固件；备份和镜像升级步骤见 [升级指南](upgrading.md)。
 
 产物标签为 `immortalwrt-master-日期-时间`，发布为正式 Release，并同步刷新 README 构建表。
 双 ADH 的模板与维护方法见 [双 AdGuardHome 说明](adguardhome.md)。

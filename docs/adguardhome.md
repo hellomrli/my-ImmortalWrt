@@ -1,5 +1,7 @@
 # 当前 master 的双 AdGuardHome
 
+[返回文档入口](index.md)
+
 本文适用于 [Honk master 固件](honk.md)，不适用于不含 ADH 的 [IPTV 固件](iptv.md)。
 历史 daed 部署记录保留在 [旧方案文档](dnsmasq-daed-dual-adh.md)，仅供回滚和核对旧配置。
 

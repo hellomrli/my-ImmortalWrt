@@ -1,5 +1,7 @@
 # 历史参考：dnsmasq + daed + 双 AdGuardHome
 
+[返回文档入口](index.md)
+
 > 本文只记录迁移前的 daed 部署，不是当前 master 的安装指南。当前固件已改为
 > [Honk](honk.md)，不再包含 dae/daed。当前双 ADH 模板和维护步骤见
 > [双 AdGuardHome 说明](adguardhome.md)。保留本文用于理解旧配置和回滚，不要直接套用旧代理规则。
