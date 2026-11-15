@@ -6,6 +6,7 @@ repo_root="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
 sed -i 's/192.168.1.1/192.168.50.1/g' package/base-files/files/bin/config_generate
 python3 "$repo_root/.github/scripts/patch-ppp-syncdial.py" \
     package/network/services/ppp/files/ppp.sh
+python3 "$repo_root/.github/scripts/patch-firewall4-compat.py" "$PWD"
 
 # Remove conflicting proxy definitions and unused packages with Kconfig cycles.
 python3 - <<'PY'

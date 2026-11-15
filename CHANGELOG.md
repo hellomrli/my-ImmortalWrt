@@ -6,6 +6,12 @@
 
 ## [Unreleased]
 
+### 构建修复（2026-11-15）
+
+- 修复 firewall4 `2026.11.08~3722eadc` 删除旧 IPv6 注释后，FullCone NAT 补丁首段无法应用的问题；master 与 IPTV 在加载配置时统一刷新该段上下文及行数，保留 FullCone 与 flow offload 的原有修改。
+- 兼容脚本限定已确认的源码 commit，支持重复执行及上游已刷新或移除独立补丁的情况；无法识别的旧配置补丁会提前报错。
+- CI 新增补丁应用回归检查，复现原始失败并验证两个 DIY 入口在获取第三方包前完成修复。
+
 ### 仓库整理（2026-10-24）
 - 清理停止构建的 dae/daed 配置、包清单、DIY 脚本及滚动源码 pin 工具，并移除 CI 中不可达的旧代理校验和发布说明分支。
 - 移除 Linux-only IPTV 扫描器遗留的 Windows 控制台适配；miniupnpd 兼容脚本按实际用途命名，不再使用 test profile 名称。

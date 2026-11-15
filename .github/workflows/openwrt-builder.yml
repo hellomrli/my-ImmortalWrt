@@ -175,6 +175,7 @@ jobs:
       run: |
         python3 .github/scripts/test-pin-lucky-source.py
         python3 .github/scripts/test-build-time-budget.py
+        python3 .github/scripts/test-firewall4-compat.py
         python3 .github/scripts/test-repository-layout.py
 
     - name: Clone source code
