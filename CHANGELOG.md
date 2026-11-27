@@ -6,6 +6,12 @@
 
 ## [Unreleased]
 
+### Honk 上游适配（2026-11-28）
+
+- 新装模板接入双 AdGuardHome，修正代理实例的 DoH 分流、本地 DNS 回应和 V2Fly 分类；Geo 数据按 protobuf 记录边界检查，不再因不足 4 MiB 报错。旧配置不被模板覆盖。
+- 双 ADH 使用上游非 root 账号、capabilities、no_new_privs 与独立 jail；升级迁移原 YAML 并保留旧路径链接。仅新装默认 dnsmasq 缓存改为 10000。
+- 启用 UDP 接收诊断所需的内核追踪选项；更新检查也跟踪 Honk 独立发布。master 固件通过隔离虚拟机启动检查后才发布，IPTV 不受影响。
+
 ### 构建修复（2026-11-15）
 
 - 修复 firewall4 `2026.11.08~3722eadc` 删除旧 IPv6 注释后，FullCone NAT 补丁首段无法应用的问题；master 与 IPTV 在加载配置时统一刷新该段上下文及行数，保留 FullCone 与 flow offload 的原有修改。

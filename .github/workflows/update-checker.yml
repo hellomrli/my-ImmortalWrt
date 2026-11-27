@@ -44,7 +44,7 @@ jobs:
             {
                 "include": [
                     {"source": t["source"], "repo_url": t["repo_url"], "branch": t["branch"],
-                     "upstream_branch": t.get("upstream_branch", t["branch"])}
+                     "upstream_branch": t.get("upstream_branch", t["branch"]), "profile": t.get("profile", t["branch"])}
                     for t in targets if t.get("automatic", True)
                 ]
             },
@@ -62,15 +62,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
-      # 只监控 ImmortalWrt 上游分支（来自 .github/targets.json）。
-      # Honk / Watchdog / Lucky 通过个人镜像 hellomrli/my-openwrt-packages 获取；
-      # Lucky 核心包来自官方文件服务 https://release.66666.host/（GitHub 停在
-      # v2.27.2，见 .github/scripts/pin-lucky-source.py）；Golang / AdGuardHome
-      # 使用 ImmortalWrt 官方 feeds。
-      # 这里不把第三方仓库作为自动触发源，避免频繁变动导致无意义构建；
-      # 任意一次固件构建都会重新拉取镜像/上游的最新版本。
 
     steps:
+
+    - uses: actions/checkout@v7
+      with:
+        persist-credentials: false
 
     - name: Get Commit Hash
       id: getHash
@@ -78,8 +75,11 @@ jobs:
         mkdir -p .commitHash
         commit_hash="$(git ls-remote "${{ matrix.repo_url }}" "refs/heads/${{ matrix.upstream_branch }}" | awk '{print $1}')"
         [ -n "$commit_hash" ] || { echo "Failed to resolve ${{ matrix.repo_url }} branch ${{ matrix.upstream_branch }}"; exit 1; }
-        echo "${{ matrix.source }}/${{ matrix.branch }}=$commit_hash" > ".commitHash/${{ matrix.source }}-${{ matrix.branch }}"
-        echo "commitHash=$commit_hash" >> $GITHUB_OUTPUT
+        inputs=()
+        if [ '${{ matrix.profile }}' = honk ]; then inputs=(--manifest .github/packages-honk.json); fi
+        build_id=$(python3 .github/scripts/build-input-id.py "$commit_hash" "${inputs[@]}")
+        echo "${{ matrix.source }}/${{ matrix.branch }}=$build_id" > ".commitHash/${{ matrix.source }}-${{ matrix.branch }}"
+        echo "commitHash=$build_id" >> "$GITHUB_OUTPUT"
 
     # Look up only.  The marker is written by openwrt-builder.yml after a
     # release is actually published, so a failed build stays "not built" and

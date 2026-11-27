@@ -184,7 +184,7 @@ clients:
   persistent: []
 log:
   enabled: true
-  file: /tmp/log/AdGuardHome-direct.log
+  file: syslog
   max_backups: 1
   max_size: 10
   max_age: 3

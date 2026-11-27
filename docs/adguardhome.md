@@ -12,8 +12,14 @@
 
 | 实例 | 服务 | 配置 | 工作目录 | DNS / Web 端口 |
 | --- | --- | --- | --- | --- |
-| direct | `adh-direct` | `/etc/AdGuardHome-direct.yaml` | `/srv/adguardhome-direct` | `50530` / `50080` |
-| proxy | `adh-proxy` | `/etc/AdGuardHome-proxy.yaml` | `/srv/adguardhome-proxy` | `50531` / `50081` |
+| direct | `adh-direct` | `/etc/adguardhome-direct/AdGuardHome.yaml` | `/srv/adguardhome-direct` | `50530` / `50080` |
+| proxy | `adh-proxy` | `/etc/adguardhome-proxy/AdGuardHome.yaml` | `/srv/adguardhome-proxy` | `50531` / `50081` |
+
+两个服务使用 `adguardhome` 用户、上游 capabilities、`no_new_privs` 与独立的 procd jail。
+每个实例只能写自己的配置和工作目录，运行日志用 `logread` 查看。自定义本地证书、密钥或上游列表
+应放入对应实例的私有配置目录并更新 YAML 路径；不要给 jail 放行整个 `/etc`。
+首启迁移旧 YAML 后，原有 `/etc/AdGuardHome-*.yaml` 路径是兼容链接；编辑请使用表内正式路径，
+避免某些编辑器原子保存时替换链接。若发现新旧两份不同的用户配置，迁移拒绝覆盖，请先备份并人工合并。
 
 DNS 监听 `127.0.0.1` / `::1`；新装 Web 仅监听 IPv4 loopback。官方单实例
 `adguardhome` 服务会被禁用，避免与双实例冲突。
@@ -28,9 +34,11 @@ LAN 普通 DNS -> Honk 透明接管 / DNS routing
 DHCP           -> dnsmasq
 ```
 
-这是配置完成后的目标路径，不是新装空配置自动获得的行为。Honk 需配置节点和 DNS/routing：
-ADH-direct 的上游应直连，ADH-proxy 的国外 DoH 应走代理，而本机兜底请求必须能到达
-`127.0.0.1:50530`，不能被再次送回代理形成循环。具体进程匹配和规则优先级需在实际设备验证。
+新装的 Honk 模板已接入双 ADH，但不会开启 Honk 或创建节点。保留配置升级不改变 DNS 或节点。
+如需让已有配置采用同一路径，可比较 `/usr/share/honk/default-config.dae`：两个回环 DNS 后端都用
+`-> direct`，不把本机 DNS 端口发给代理节点。流量规则依次让 `AdGuardHome-pro` 的回环访问直连、
+该进程的 443 出站走 `proxy`、其余 ADH 流量直连。自定义 DoH 端口或代理组时需同步调整；
+实例名取 15 字节前缀，与内核进程名一致。不要整份替换正在使用的配置。
 dnsmasq 可以继续监听 53，但不代表所有被透明接管的查询都先经过它。
 
 ## 首次管理与启动等待
@@ -96,10 +104,11 @@ sysupgrade 保留两个 YAML。`99-adh-dual` 会恢复新版服务 wrapper，并
 
    ```sh
    backup="/root/AdGuardHome-proxy.yaml.before-edit.$(date +%Y%m%d-%H%M%S)"
-   cp -p /etc/AdGuardHome-proxy.yaml "$backup" && ls -l "$backup"
+   conf=/etc/adguardhome-proxy/AdGuardHome.yaml
+   cp -p "$conf" "$backup" && ls -l "$backup"
    # 仅在备份成功后继续；另将备份下载到电脑或 NAS。
    /etc/init.d/adh-proxy stop
-   vi /etc/AdGuardHome-proxy.yaml
+   vi "$conf"
    ```
 
 2. 只修改现有 `dns:` 映射中的字段，不新增第二个 `dns:` 或重复键：
@@ -123,7 +132,7 @@ sysupgrade 保留两个 YAML。`99-adh-dual` 会恢复新版服务 wrapper，并
 
    ```sh
    /etc/init.d/adh-proxy stop
-   cp -p "$backup" /etc/AdGuardHome-proxy.yaml
+   cp -p "$backup" "$conf"
    /etc/init.d/adh-proxy start
    ```
 

@@ -7,9 +7,9 @@
 保留配置升级只恢复进入 sysupgrade 备份压缩包的内容，不等于保留整个 overlay。
 以下保留清单与 ADH 检查以 master 为例；IPTV 请同时阅读 [IPTV 备份说明](iptv.md)。
 
-x86 的 `platform_do_upgrade` 在镜像分区表与当前磁盘不一致时，会 `dd` 整盘覆盖——
-包括 overlay 分区。分区表一致时才逐分区写入。本固件为 256 MiB 内核 + 2048 MiB 根分区；
-如果当前运行的固件分区尺寸不同，升级会重建整个磁盘，届时只有备份压缩包里的内容能活下来。
+当前 x86 的 `legacy-sdcard` 升级逻辑在镜像分区布局变化时可能整盘写入；若检测到额外分区且布局冲突，
+默认拒绝写入，而不是擦掉额外分区。如果镜像分区匹配则可以逐分区写入。实际行为取决于执行升级的旧固件。
+本固件为 256 MiB 内核 + 2048 MiB 根分区；不要绕过额外分区保护，升级前仍须备份到别的设备。
 
 所以下面的备份步骤不是可选项。
 
@@ -27,7 +27,7 @@ overlay 文件不会遮蔽后续规则更新；`/etc/sysupgrade.conf` 留给你�
 | 旧 daede 管理界面（回滚用） | `/etc/config/daede` | keep.d（旧数据存在时） |
 | Lucky | `/etc/config/lucky` + 数据目录 `/etc/config/lucky.daji/` | keep.d |
 | Watchdog | `/etc/config/watchdog` | keep.d |
-| 双 AdGuardHome 设置 | `/etc/AdGuardHome-direct.yaml`、`-proxy.yaml` | keep.d |
+| 双 AdGuardHome 设置 | `/etc/adguardhome-direct/`、`/etc/adguardhome-proxy/`，以及 `/etc/AdGuardHome-*.yaml` 旧路径 | keep.d |
 | 计划任务 | `/etc/crontabs/root` | keep.d |
 | network / dhcp / firewall / SQM / UPnP / 密码 / SSH key / 证书 | `/etc/config/*` 等 | 标准 conffile 机制 |
 
@@ -39,6 +39,7 @@ overlay 文件不会遮蔽后续规则更新；`/etc/sysupgrade.conf` 留给你�
   但 sysupgrade 重建磁盘时会随 overlay 一起丢失，必要时需自行纳入备份。
   真正的设置（上游、过滤器订阅地址、用户密码）在 YAML 里，会保留；规则可在启动后重新下载。
 - `/tmp`、`/var` 下的其它一切。
+- 手动或通过 LuCI 更新的 `/usr/share/v2ray/geoip.dat`、`/usr/share/v2ray/geosite.dat`。`-c` 不包含 `/usr/share`；若需保留自定义分流数据，升级前单独复制这两个文件到电脑，或确认原下载源仍可用。
 - 未列入 keep.d、conffiles，也未被 `-c` 捕获的路径。
 
 ## 升级前必做
@@ -56,7 +57,7 @@ sysupgrade -c -k -b /tmp/backup-before-upgrade.tar.gz
 
 # 3. 验证压缩包可读，并抽查关键配置
 tar -tzf /tmp/backup-before-upgrade.tar.gz >/dev/null
-tar -tzf /tmp/backup-before-upgrade.tar.gz | grep -E '(^|/)etc/(config/(network|dhcp|firewall|honk|dae|daed|daede|lucky|lucky\.daji)|honk/|dae/|daed/|AdGuardHome-(direct|proxy)\.yaml|shadow|passwd)'
+tar -tzf /tmp/backup-before-upgrade.tar.gz | grep -E '(^|/)etc/(config/(network|dhcp|firewall|honk|dae|daed|daede|lucky|lucky\.daji)|honk/|dae/|daed/|adguardhome-(direct|proxy)/|AdGuardHome-(direct|proxy)\.yaml|shadow|passwd)'
 sha256sum /tmp/backup-before-upgrade.tar.gz
 ```
 
@@ -92,7 +93,7 @@ sysupgrade -c -k -v /tmp/immortalwrt-x86-64-generic-squashfs-combined-efi.img.gz
 
 ```sh
 mount | grep -E ' /overlay |overlayfs:/overlay on / '
-sysupgrade -l | grep -E 'AdGuardHome-(direct|proxy)|etc/(honk|dae|daed)|lucky\.daji'
+sysupgrade -l | grep -E '(AdGuardHome|adguardhome)-(direct|proxy)|etc/(honk|dae|daed)|lucky\.daji'
 uci show network >/dev/null && uci show dhcp >/dev/null
 /etc/init.d/adh-direct status
 /etc/init.d/adh-proxy status

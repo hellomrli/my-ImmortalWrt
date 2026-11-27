@@ -9,10 +9,33 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = (ROOT / "files/etc/uci-defaults/99-adh-dual").read_text()
-FUNCTIONS = SCRIPT[SCRIPT.index("adh_has_user() {"):SCRIPT.index("# Older images shipped")]
+FUNCTIONS = SCRIPT[SCRIPT.index("adh_has_user() {"):SCRIPT.index("\numask 077")]
 
 
 class AdhMigrationTests(unittest.TestCase):
+    def test_config_relocation_is_repeatable_and_preserves_conflicts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            legacy, dest, rom = base / 'original.yaml', base / 'role', base / 'rom.yaml'
+            rom.write_text('template')
+            legacy.write_text('my custom yaml')
+            def run(ok=True):
+                result = subprocess.run(['sh', '-eu', '-c', FUNCTIONS + '\nmigrate_config "$1" "$2" "$3"',
+                                         'test', str(legacy), str(dest), str(rom)], capture_output=True)
+                self.assertEqual(result.returncode == 0, ok, result.stderr)
+            run()
+            run()
+            self.assertEqual(legacy.resolve(), dest / 'AdGuardHome.yaml')
+            self.assertEqual(legacy.read_text(), 'my custom yaml')
+            legacy.unlink()
+            legacy.write_text('other config')
+            run(False)
+            self.assertEqual((dest / 'AdGuardHome.yaml').read_text(), 'my custom yaml')
+            self.assertEqual(legacy.read_text(), 'other config')
+            legacy.write_text(rom.read_text())
+            run()
+            self.assertEqual(legacy.read_text(), 'my custom yaml')
+
     def migrate(self, users, authenticated):
         original = "http:\n  address: 192.168.50.1:50080\n" + users
         original += "dns:\n  port: 50530\nfilters:\n  - name: unrelated\n"

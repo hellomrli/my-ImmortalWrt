@@ -3,23 +3,10 @@ USE_PROCD=1
 START=94
 STOP=10
 BIN=/usr/bin/AdGuardHome-direct
-CONF=/etc/AdGuardHome-direct.yaml
+CONF=/etc/adguardhome-direct/AdGuardHome.yaml
 # Persistent, deliberately not under /var (which is a symlink to tmpfs): the
 # work dir holds the downloaded filter lists, so on /var every reboot re-fetched
 # every list and left DNS filtering inactive until they arrived.  Kept out of
 # /etc as well, so query logs stay out of sysupgrade -c backups.
 WORK=/srv/adguardhome-direct
-start_service() {
-  [ -x "$BIN" ] || return 1
-  mkdir -p "$WORK"
-  mkdir -p /tmp/log
-  procd_open_instance
-  procd_set_param command /usr/libexec/adh-wait-start "$CONF" "$BIN" -c "$CONF" -w "$WORK" --no-check-update --no-permcheck
-  procd_set_param respawn 3600 5 5
-  procd_set_param limits nofile="65535 65535"
-  procd_set_param stdout 1
-  procd_set_param stderr 1
-  procd_set_param file "$CONF" /usr/libexec/adh-wait-start
-  procd_close_instance
-}
-reload_service() { stop; start; }
+. "${IPKG_INSTROOT:-}/usr/share/adh-dual/service.sh"

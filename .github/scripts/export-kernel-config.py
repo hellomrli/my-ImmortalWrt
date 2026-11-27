@@ -35,6 +35,8 @@ def export_kernel_config(tree: Path, output: Path, profile: str = "master") -> N
         required = {key: required[key] for key in ("CONFIG_X86_64", "CONFIG_NET_SCH_FQ", "CONFIG_TCP_CONG_BBR")}
     elif profile == "honk":
         required.update({
+            "CONFIG_FUNCTION_TRACER": ("y",),
+            "CONFIG_DYNAMIC_FTRACE": ("y",),
             "CONFIG_NFT_QUEUE": ("y", "m"),
             "CONFIG_NETFILTER_NETLINK_QUEUE": ("y", "m"),
         })

@@ -10,7 +10,7 @@ REQUIRED = (
     "honk", "luci-app-honk", "kmod-nft-queue", "kmod-nfnetlink-queue",
     "kmod-sched", "kmod-sched-bpf", "kmod-veth", "sqlite3-cli", "coreutils-stat",
     "adguardhome", "lucky", "luci-app-lucky", "watchdog", "luci-app-watchdog",
-    "kmod-fs-f2fs", "mkf2fs", "f2fsck", "openssh-sftp-server", "qemu-ga",
+    "kmod-fs-f2fs", "mkf2fs", "f2fsck", "openssh-sftp-server", "qemu-ga", "procd-ujail",
 )
 OLD_PROXY = re.compile(r"^(?:dae(?:[-_].*)?|daed(?:[-_].*)?|luci-app-dae(?:d|de)?(?:[-_].*)?)$")
 
@@ -36,7 +36,8 @@ def check(tree: Path, manifest: Path | None = None) -> None:
         require(f"CONFIG_PACKAGE_{package}=y" in config, f"Honk package was lost: {package}")
     require(not any(OLD_PROXY.fullmatch(name) for name in selected), "Old dae/daed package remains selected")
     require(bool({"dnsmasq", "dnsmasq-full"} & selected), "DHCP/local DNS service is missing")
-    for symbol in ("CONFIG_KERNEL_DEBUG_INFO_BTF", "CONFIG_KERNEL_CGROUP_BPF", "CONFIG_KERNEL_NETKIT", "CONFIG_KERNEL_XDP_SOCKETS"):
+    for symbol in ("CONFIG_KERNEL_DEBUG_INFO_BTF", "CONFIG_KERNEL_CGROUP_BPF", "CONFIG_KERNEL_NETKIT", "CONFIG_KERNEL_XDP_SOCKETS",
+                   "CONFIG_KERNEL_FUNCTION_TRACER", "CONFIG_KERNEL_DYNAMIC_FTRACE"):
         require(f"{symbol}=y" in config, f"Required eBPF option was lost: {symbol}")
     for package in ("honk", "luci-app-honk"):
         makefile = tree / "package/honk" / package / "Makefile"
@@ -46,7 +47,7 @@ def check(tree: Path, manifest: Path | None = None) -> None:
             path = tree / "package/feeds" / feed / name
             require(not path.exists() and not path.is_symlink(), f"Conflicting proxy feed entry: {path}")
     keep = (tree / "files/lib/upgrade/keep.d/my-immortalwrt").read_text().splitlines()
-    for path in ("/etc/config/honk", "/etc/honk", "/etc/AdGuardHome-direct.yaml", "/etc/AdGuardHome-proxy.yaml"):
+    for path in ("/etc/config/honk", "/etc/honk", "/etc/AdGuardHome-direct.yaml", "/etc/AdGuardHome-proxy.yaml", "/etc/adguardhome-direct", "/etc/adguardhome-proxy"):
         require(path in keep, f"Missing Honk/DNS upgrade retention: {path}")
     for name in ("adh-direct", "adh-proxy"):
         path = tree / "files/etc/init.d" / name

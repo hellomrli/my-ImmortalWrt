@@ -106,7 +106,8 @@ GitHub 托管 runner 有几条硬性限制，流水线是围绕它们设计的�
   不再靠整轮 `make -j1 V=s` 重跑来取日志。
 - 重试阶梯全部增量执行：并行 → 并行重试 → 单线程 `V=s`。不再有 `make clean` 后的全量重建
   （那在 6 小时内不可能完成）。
-- Update Checker 每 6 小时比对上游 commit；「已构建」标记在发布成功后才写入，
+- Update Checker 每 6 小时比对上游 commit；Honk 目标还比对镜像 `honk-source.json` 的 SHA256，
+  单独更新 Honk 发布也会重建 master，不会因镜像内无关包变更重编 IPTV。「已构建」标记由实际构建输入计算，在发布成功后才写入，
   因此构建失败会在下次检查时重试，而不是等上游再次提交。
 - 每个固件目标保留最近 5 个 Release；`OpenWrt Builder` 工作流共保留最近 20 条运行记录，
   不是每个目标各 20 条。

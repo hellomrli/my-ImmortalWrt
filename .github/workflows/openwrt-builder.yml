@@ -318,6 +318,10 @@ jobs:
         chmod +x ${{ matrix.diy_p2_sh }}
         cd openwrt
         $GITHUB_WORKSPACE/${{ matrix.diy_p2_sh }}
+        inputs=()
+        if [ '${{ matrix.profile }}' = honk ]; then inputs=(--pin package/honk/honk-source.json); fi
+        build_id=$(python3 "$GITHUB_WORKSPACE/.github/scripts/build-input-id.py" "$SOURCE_SHA" "${inputs[@]}")
+        echo "BUILD_INPUT_ID=$build_id" >> "$GITHUB_ENV"
         go_root="$(go env GOROOT)"
         [ -x "$go_root/bin/go" ] || { echo "::error::No bootstrap Go at $go_root"; exit 1; }
         sed -i '/^CONFIG_GOLANG_BUILD_BOOTSTRAP=/d;/^# CONFIG_GOLANG_BUILD_BOOTSTRAP is not set$/d;/^CONFIG_GOLANG_EXTERNAL_BOOTSTRAP_ROOT=/d' .config
@@ -440,6 +444,8 @@ jobs:
           /etc/daed \
           /etc/AdGuardHome-direct.yaml \
           /etc/AdGuardHome-proxy.yaml \
+          /etc/adguardhome-direct \
+          /etc/adguardhome-proxy \
           /etc/config/lucky \
           /etc/config/lucky.daji \
           /etc/config/watchdog \
@@ -458,7 +464,7 @@ jobs:
           files/etc/init.d/adh-direct files/etc/init.d/adh-proxy \
           files/usr/libexec/adh-wait-start \
           files/etc/init.d/perf-tune \
-          files/etc/uci-defaults/97-dnsmasq-cache \
+          files/usr/share/adh-dual/service.sh \
           files/etc/uci-defaults/98-fstab-single-boot files/etc/uci-defaults/99-adh-dual; do
           sh -n "$script" || { echo "::error::Shell syntax check failed: $script"; exit 1; }
         done
@@ -705,9 +711,22 @@ jobs:
         name: OpenWrt_bin_${{ env.SOURCE_NAME }}_${{ env.BRANCH_NAME }}${{ env.FILE_DATE }}
         path: openwrt/bin
 
+    - name: Boot-test the fresh Honk image
+      id: smoke
+      if: matrix.profile == 'honk' && steps.compile.outputs.status == 'success' && !cancelled()
+      timeout-minutes: 10
+      run: |
+        sudo apt-get -qq -o Acquire::Retries=3 install --no-install-recommends qemu-system-x86 python3-pexpect
+        cd openwrt/bin/targets/x86/64
+        disk="$RUNNER_TEMP/honk-smoke.img"
+        trap 'rm -f "$disk"' EXIT
+        set -o pipefail
+        gzip -dc ./*-squashfs-combined.img.gz | dd of="$disk" bs=1M iflag=fullblock conv=sparse status=none
+        /usr/bin/python3 "$GITHUB_WORKSPACE/.github/scripts/smoke-honk-image.py" ./*-generic-kernel.bin "$disk"
+
     - name: Organize files
       id: organize
-      if: steps.compile.outputs.status == 'success' && env.UPLOAD_FIRMWARE == 'true' && !cancelled()
+      if: steps.compile.outputs.status == 'success' && (matrix.profile != 'honk' || steps.smoke.outcome == 'success') && env.UPLOAD_FIRMWARE == 'true' && !cancelled()
       run: |
         cd openwrt/bin/targets/*/*
 
@@ -801,9 +820,9 @@ jobs:
         echo "FIRMWARE=$PWD" >> $GITHUB_ENV
         echo "status=success" >> $GITHUB_OUTPUT
 
-    - name: Preserve unpublished firmware on organize failure
+    - name: Preserve unpublished firmware on validation failure
       uses: actions/upload-artifact@v7
-      if: failure() && matrix.profile == 'honk' && steps.compile.outputs.status == 'success' && steps.organize.outcome == 'failure'
+      if: failure() && matrix.profile == 'honk' && steps.compile.outputs.status == 'success' && (steps.smoke.outcome == 'failure' || steps.organize.outcome == 'failure')
       with:
         name: unpublished-firmware_${{ github.run_id }}
         path: |
@@ -843,8 +862,9 @@ jobs:
 
         Honk core 和 Doona 使用 SHA256 锁定的上游 release 二进制/资源；OpenWrt 包和内核模块随本固件构建。
         源码提交与哈希附在 ${{ matrix.source }}-${{ matrix.branch }}_packages.txt 中。
-        全新安装默认不启用 Honk；保留的 Honk 配置/状态不会被覆盖或自动启用。
-        不要同时运行 daed 和 Honk。升级前备份配置和虚拟机磁盘。
+        新装 Honk 模板已接入双 ADH，但不会自动启用；保留配置后按原 enabled 和 initialized 状态启动。
+        双 ADH 降权隔离运行，原 YAML 自动迁移；文件型上游和证书请提前参考双 ADH 文档。
+        不要同时运行 daed 和 Honk。升级前备份配置和虚拟机磁盘；另行备份自定义的 /usr/share/v2ray/*.dat。
 
         推荐镜像：squashfs-combined-efi.img.gz。本工作流不会刷写路由器。
         文档：https://github.com/hellomrli/my-ImmortalWrt/blob/main/docs/honk.md
@@ -880,7 +900,7 @@ jobs:
       if: steps.organize.outputs.status == 'success' && steps.tag.outputs.status == 'success' && steps.release.outcome == 'success' && !cancelled()
       run: |
         mkdir -p .commitHash
-        echo "${{ matrix.source }}/${{ matrix.branch }}=${SOURCE_SHA}" \
+        echo "${{ matrix.source }}/${{ matrix.branch }}=${BUILD_INPUT_ID}" \
           > ".commitHash/${{ matrix.source }}-${{ matrix.branch }}"
 
     - name: Save built-commit marker
@@ -889,7 +909,7 @@ jobs:
       continue-on-error: true
       with:
         path: .commitHash/${{ matrix.source }}-${{ matrix.branch }}
-        key: commitHash_${{ matrix.source }}_${{ matrix.branch }}_${{ env.SOURCE_SHA }}
+        key: commitHash_${{ matrix.source }}_${{ matrix.branch }}_${{ env.BUILD_INPUT_ID }}
 
     - name: Refresh README build table
       if: steps.organize.outputs.status == 'success' && steps.tag.outputs.status == 'success' && steps.release.outcome == 'success' && !cancelled()

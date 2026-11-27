@@ -23,7 +23,7 @@ dnsmasq DHCP、Lucky、Watchdog 和 F2FS 恢复支持保持不变。
 
 ## DNS 路径
 
-已迁移配置的目标结构是：
+新装 Honk 模板在完成初始化、添加节点并启用后，使用以下路径：
 
 ```text
 LAN 普通 DNS -> Honk 透明接管 / DNS routing
@@ -37,7 +37,7 @@ DHCP           -> dnsmasq（不变）
 dnsmasq 仍可监听 53 端口，但透明接管会发生在普通 DNS 交给它处理之前；仅看到监听端口，
 不能推断所有 DNS 都经过 dnsmasq。原 daed 实机配置也使用透明 DNS 接管，普通查询并不需要
 先经过 dnsmasq。本固件保留双 ADH 的服务、端口和配置，不为 Honk 重写 DHCP、防火墙或网络接口。
-最终流量路径仍取决于设备上启用的 Honk DNS/routing 配置，不能把全新安装的空配置当成已迁移配置。
+保留配置升级不会替换活动规则；可与 `/usr/share/honk/default-config.dae` 比较，不要覆盖自己的节点或订阅。
 
 ## NFQUEUE 与启动
 
@@ -48,13 +48,16 @@ NFQUEUE 让 nftables 把指定数据包交给用户态程序检查，再由程�
 `CONFIG_NFT_QUEUE`、`CONFIG_NETFILTER_NETLINK_QUEUE`。模块与本固件内核一起生成，
 不能把这些 APK 强装到旧内核固件上。
 
-之前为兼容旧固件准备的 Honk 配置关闭了 NFQUEUE。**保留配置升级不会自动把它打开**，
-也不会自动启用或重启 Honk；需要测试时再通过 Honk 管理界面检查相关配置。
-Honk 的 `/etc/honk/system.dae` 包含 `nfqueue_enable`，相关 UCI 设置与实际生成的配置应保持一致。
+**保留配置升级不会改写 NFQUEUE 开关或 Honk 的启用状态。**
+以核心解析的活动配置为准。新版模板在 `/etc/honk/config.dae` 的 `global` 内设置 `nfqueue_enable`，
+只包含 `secrets.dae`；旧配置可能仍包含 `system.dae`。在新核心上可用
+`honk-core config validate --config /etc/honk/config.dae | jsonfilter -e '@.runtime.nfqueue_enable'` 核对；
+只改一个未被包含的文件不会生效。Honk 内核也包含 function tracer 和 dynamic ftrace，用于 UDP 接收诊断回退。
 缺少 NFQUEUE 时，关闭对应功能的 Honk 仍可运行；启用时则需要本固件补充的内核支持。
 
-全新安装保持 Honk 上游默认 `enabled=0`、`boot_enabled=0`。保留配置设备的开机状态由
-已有 `boot_enabled` 决定，不强制改成开启或关闭。不要同时运行 daed 和 Honk，二者会争用
+上游注册开机服务，但仅在 `honk.main.enabled=1` 且 `honk.main.initialized=1` 时启动核心。
+新装默认不满足这两个条件；保留配置后若两者已经为 1 且服务已注册，重启会启动。不要只凭遗留的
+`boot_enabled` 值判断，可用 `/etc/init.d/honk enabled` 检查开机链接。不要同时运行 daed 和 Honk，二者会争用
 透明代理的接口/网络命名空间。旧 dae/daed 配置保留用于回滚，但当前固件不再携带其程序。
 
 ## 版本与构建检查
@@ -73,6 +76,11 @@ Honk 的 `/etc/honk/system.dae` 包含 `nfqueue_enable`，相关 UCI 设置与�
   LuCI 翻译和 NFQUEUE 内核模块由本次固件构建系统生成，不复用其他 SDK 的 APK。
 - `make defconfig` 后检查 Honk、NFQUEUE、双 ADH、eBPF、恢复网络；发布前再检查 manifest 与真实 kernel `.config`。
 - Release 附带构建配置、内核配置、来源哈希清单及 Honk/LuCI/两个 NFQUEUE 模块的 APK。
+
+Honk 的 GeoSite 使用官方 feed 的 V2Fly 数据及其 `apple@cn` 分类。新装预选 LuCI 的 V2Fly 更新源，已有选择不变；
+启动检查和 LuCI 下载检查解析 protobuf 的条目边界与分类名，不再用固定的 4 MiB 门槛拒绝正常的小文件。
+这项格式检查不是签名验证；固件内置数据库仍由 feed 的 SHA256 固定。
+新装 dnsmasq 的缓存默认值为 10000；现有 UCI 值（包括 8000）不会在升级时被改写。
 
 Honk 固件兼容处理：移除未选用且存在 Kconfig 循环依赖的 video、freeradius3、squeezelite-custom；
 miniupnpd 2.3.11 已包含旧 020/030 补丁的修复，只移除哈希已知的重复补丁；

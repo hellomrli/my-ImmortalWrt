@@ -8,6 +8,8 @@
 /etc/daed
 /etc/AdGuardHome-direct.yaml
 /etc/AdGuardHome-proxy.yaml
+/etc/adguardhome-direct
+/etc/adguardhome-proxy
 /etc/config/lucky
 /etc/config/lucky.daji
 /etc/config/watchdog

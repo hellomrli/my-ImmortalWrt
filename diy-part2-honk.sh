@@ -35,6 +35,7 @@ python3 "$repo_root/.github/scripts/fetch-packages.py" \
     --tree "$PWD" --provenance "$PWD/package-provenance.txt"
 python3 "$repo_root/.github/scripts/fetch-honk-source.py" \
     --tree "$PWD" --provenance "$PWD/package-provenance.txt"
+python3 "$repo_root/.github/scripts/patch-honk-profile.py" "$PWD"
 python3 "$repo_root/.github/scripts/pin-lucky-source.py" \
     --tree "$PWD" --provenance "$PWD/package-provenance.txt"
 

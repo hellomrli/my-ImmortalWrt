@@ -23,14 +23,49 @@ secure_unauthenticated_web() {
   local conf="$1" address="$2"
   [ -f "$conf" ] || return 0
   if ! adh_has_user "$conf"; then
-    sed -i "s#^  address:.*#  address: ${address}#" "$conf"
+    sed -i "/^http:/,/^[^[:space:]#]/s#^  address:.*#  address: ${address}#" "$conf"
   fi
 }
 
-# Older images shipped users: [] while forcing the Web UI onto the LAN from the
-# init command line.  On upgrade, close that exposure unless a real user exists.
-secure_unauthenticated_web /etc/AdGuardHome-direct.yaml 127.0.0.1:50080
-secure_unauthenticated_web /etc/AdGuardHome-proxy.yaml 127.0.0.1:50081
+migrate_config() {
+  local legacy="$1" dir="$2" rom="$3" conf="$2/AdGuardHome.yaml" temp
+  [ ! -L "$dir" ] && [ ! -L "$conf" ] || return 1
+  [ ! -e "$conf" ] || [ -f "$conf" ] || return 1
+  mkdir -p "$dir" || return 1
+  chmod 0700 "$dir" || return 1
+  if [ -L "$legacy" ]; then
+    [ "$(readlink "$legacy")" = "$conf" ] && [ -f "$conf" ] || return 1
+  elif [ -f "$legacy" ]; then
+    if [ ! -e "$conf" ]; then
+      temp=$(mktemp "$dir/.migrate.XXXXXX") || return 1
+      cp "$legacy" "$temp" && chmod 0600 "$temp" && mv "$temp" "$conf" || { rm -f "$temp"; return 1; }
+    elif ! cmp -s "$legacy" "$conf" && ! cmp -s "$legacy" "$rom"; then
+      logger -t adh-migrate "Conflicting configurations: $legacy and $conf; neither was overwritten"
+      return 1
+    fi
+    ln -snf "$conf" "$legacy" || return 1
+  elif [ ! -e "$legacy" ] && [ -f "$conf" ]; then
+    ln -s "$conf" "$legacy" || return 1
+  else
+    return 1
+  fi
+}
+
+umask 077
+for role in direct proxy; do
+  legacy=/etc/AdGuardHome-$role.yaml
+  dir=/etc/adguardhome-$role
+  work=/srv/adguardhome-$role
+  migrate_config "$legacy" "$dir" "/rom$legacy" || exit 1
+  case "$role" in direct) port=50080 ;; proxy) port=50081 ;; esac
+  secure_unauthenticated_web "$dir/AdGuardHome.yaml" "127.0.0.1:$port"
+  [ ! -L "$work" ] || exit 1
+  mkdir -p "$work"
+  chmod 0700 "$work"
+  chmod 0600 "$dir/AdGuardHome.yaml"
+  chown -Rh adguardhome:adguardhome "$dir" "$work"
+done
+umask 022
 
 # The wrappers themselves ship in the read-only image as /etc/init.d/adh-*.
 # Restore the ROM copy rather than repeating the script text here: a keep-config

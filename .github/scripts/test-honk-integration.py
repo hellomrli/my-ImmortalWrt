@@ -30,9 +30,23 @@ profile = load("check-honk-profile")
 source = load("fetch-honk-source")
 kernel = load("export-kernel-config")
 compat = load("patch-miniupnpd-compat")
+build_inputs = load("build-input-id")
 
 
 class HonkTests(unittest.TestCase):
+    def test_update_checker_matches_staged_release_and_ignores_unrelated_mirror_changes(self):
+        upstream = 'a' * 40
+        pin = json.dumps({'wrapper_commit': 'b' * 40}).encode()
+        with mock.patch.dict(os.environ, {'PKG_MIRROR_REF': 'pinned-ref'}), \
+                mock.patch.object(build_inputs, 'urlopen', return_value=io.BytesIO(pin)) as fetch:
+            checked = build_inputs.mirror_pin(ROOT / '.github/packages-honk.json')
+            fetch.assert_called_once_with('https://raw.githubusercontent.com/hellomrli/my-openwrt-packages/pinned-ref/openwrt-honk/honk-source.json', timeout=30)
+        self.assertEqual(build_inputs.build_id(upstream, checked), build_inputs.build_id(upstream, pin))
+        self.assertNotEqual(build_inputs.build_id(upstream, pin), build_inputs.build_id(upstream, pin.replace(b'bb', b'cc')))
+        self.assertEqual(build_inputs.build_id(upstream), upstream)
+        with self.assertRaises(ValueError):
+            build_inputs.build_id(upstream, b'{}')
+
     def stage(self, tree):
         shutil.copytree(ROOT / "files", tree / "files", symlinks=True)
         with (tree / "files/lib/upgrade/keep.d/my-immortalwrt").open("a") as handle:
@@ -76,7 +90,8 @@ class HonkTests(unittest.TestCase):
         config.parent.mkdir(parents=True)
         config.write_text("".join(f"CONFIG_{name}=y\n" for name in (
             "X86_64", "BPF_SYSCALL", "CGROUP_BPF", "DEBUG_INFO_BTF", "NETKIT",
-            "XDP_SOCKETS", "NET_SCH_FQ", "TCP_CONG_BBR", "NFT_QUEUE", "NETFILTER_NETLINK_QUEUE")))
+            "XDP_SOCKETS", "NET_SCH_FQ", "TCP_CONG_BBR", "NFT_QUEUE", "NETFILTER_NETLINK_QUEUE",
+            "FUNCTION_TRACER", "DYNAMIC_FTRACE")))
         workflow = yaml.safe_load((ROOT / ".github/workflows/openwrt-builder.yml").read_text())
         script = next(step["run"] for step in workflow["jobs"]["build"]["steps"]
                       if step["name"] == "Organize files")
@@ -148,10 +163,10 @@ class HonkTests(unittest.TestCase):
             config.write_text(base)
             with self.assertRaises(RuntimeError):
                 kernel.export_kernel_config(tree, tree / "export.config", "honk")
-            complete = base + "CONFIG_NFT_QUEUE=m\nCONFIG_NETFILTER_NETLINK_QUEUE=m\n"
+            complete = base + "CONFIG_NFT_QUEUE=m\nCONFIG_NETFILTER_NETLINK_QUEUE=m\nCONFIG_FUNCTION_TRACER=y\nCONFIG_DYNAMIC_FTRACE=y\n"
             config.write_text(complete)
             kernel.export_kernel_config(tree, tree / "export.config", "honk")
-            for line in ("CONFIG_NFT_QUEUE=m\n", "CONFIG_NETFILTER_NETLINK_QUEUE=m\n", "CONFIG_DEBUG_INFO_BTF=y\n"):
+            for line in ("CONFIG_NFT_QUEUE=m\n", "CONFIG_NETFILTER_NETLINK_QUEUE=m\n", "CONFIG_DEBUG_INFO_BTF=y\n", "CONFIG_FUNCTION_TRACER=y\n", "CONFIG_DYNAMIC_FTRACE=y\n"):
                 config.write_text(complete.replace(line, ""))
                 with self.assertRaises(RuntimeError):
                     kernel.export_kernel_config(tree, tree / "export.config", "honk")
@@ -374,7 +389,9 @@ class HonkTests(unittest.TestCase):
         self.assertEqual(release["make_latest"], "legacy")
         self.assertNotIn("test", steps["Refresh README build table"]["if"])
         self.assertEqual(workflow["jobs"]["cleanup-runs"]["if"], "always()")
-        recovery = steps["Preserve unpublished firmware on organize failure"]
+        self.assertIn("steps.smoke.outcome == 'success'", steps["Organize files"]["if"])
+        recovery = steps["Preserve unpublished firmware on validation failure"]
+        self.assertIn("steps.smoke.outcome == 'failure'", recovery["if"])
         self.assertIn("matrix.profile == 'honk'", recovery["if"])
         self.assertIn("steps.compile.outputs.status == 'success'", recovery["if"])
         self.assertIn("steps.organize.outcome == 'failure'", recovery["if"])
