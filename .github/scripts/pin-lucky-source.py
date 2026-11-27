@@ -18,8 +18,8 @@ Run this after the third-party packages are materialized and before
   ``package/lucky/lucky/Makefile``, so ``make download`` fetches exactly the
   bytes the vendor published (this firmware builds x86_64, but the map covers
   every architecture the Makefile knows about);
-* the service is unreachable -> keep the mirrored pin and let the download
-  stage decide;
+* the service is unreachable -> keep the mirrored pin only if it provides a
+  SHA256 for x86_64 and matches any explicitly requested version;
 * the service answers but no usable release exists -> fail, because silently
   building an unverified pin is worse than a two-minute failure.
 
@@ -284,6 +284,9 @@ def fetch_checksums(release: str, product: str) -> dict[str, str]:
 
 def arch_map(version: str, digests: dict[str, str]) -> tuple[str, list[str]]:
     """Render the ARCH MAP block and report architectures the vendor dropped."""
+    archive = f"lucky_{version}_Linux_x86_64.tar.gz"
+    if not re.fullmatch(r"[0-9a-f]{64}", digests.get(archive, "")):
+        raise PinError(f"Missing or invalid required SHA256 for {archive}")
     hashes: dict[str, str] = {}
     missing: list[str] = []
     for arch in VENDOR_ARCHES:
@@ -293,12 +296,6 @@ def arch_map(version: str, digests: dict[str, str]) -> tuple[str, list[str]]:
         else:
             hashes[arch] = "skip"
             missing.append(arch)
-
-    if len(missing) == len(VENDOR_ARCHES):
-        raise PinError(
-            f"checksums.txt for {version} lists no lucky_{version}_Linux_<arch>.tar.gz at all; "
-            f"the vendor renamed the artefacts (found: {', '.join(sorted(digests)[:5])} ...)"
-        )
 
     def line(arch: str, indent: str) -> str:
         note = "  # not in the vendor checksums.txt" if hashes[arch] == "skip" else ""
@@ -369,7 +366,8 @@ def resolve(tree: Path, requested: str | None) -> dict:
     name = makefile_value(text, "PKG_NAME")
     if name != "lucky":
         raise PinError(f"{MAKEFILE} defines PKG_NAME:={name}, expected lucky")
-    if not ARCH_MAP_RE.search(text):
+    arch_block = ARCH_MAP_RE.search(text)
+    if not arch_block:
         raise PinError(
             f"{MAKEFILE} has no {ARCH_MAP_START} / {ARCH_MAP_END} block, so it does not "
             "point at the vendor service. Check that hellomrli/my-openwrt-packages is "
@@ -382,11 +380,20 @@ def resolve(tree: Path, requested: str | None) -> dict:
     try:
         release, product, digests = pick_release(requested)
     except SiteUnavailable as exc:
+        cached = re.search(
+            r"^ifeq \(\$\(ARCH\),x86_64\)\n[ \t]*LUCKY_ARCH:=x86_64\n"
+            r"[ \t]*LUCKY_HASH:=([0-9a-f]{64})[ \t]*\nendif$", arch_block["body"], re.MULTILINE,
+        )
+        if not cached:
+            raise PinError("Vendor unavailable and mirrored Lucky pin has no valid x86_64 SHA256") from exc
+        if requested and numeric_version(requested) != numeric_version(pinned_version):
+            raise PinError(f"Mirrored Lucky {pinned_version} does not match LUCKY_VERSION={requested}") from exc
         warn(f"lucky: {exc}; keeping the mirrored pin {pinned_version} from {pinned_url}")
         return {
             "version": pinned_version,
             "release": pinned_url,
-            "state": "unverified",
+            "state": "mirrored",
+            "digest": cached[1],
             "missing": [],
             "changed": False,
         }
@@ -417,7 +424,7 @@ def resolve(tree: Path, requested: str | None) -> dict:
         "state": "pinned",
         "missing": missing,
         "changed": changed,
-        "digest": digests.get(f"lucky_{version}_Linux_x86_64.tar.gz", ""),
+        "digest": digests[f"lucky_{version}_Linux_x86_64.tar.gz"],
     }
 
 
@@ -448,6 +455,7 @@ def main() -> int:
             handle.write("Lucky core package (release.66666.host):\n")
             handle.write(
                 f"  lucky -> {record['version']} ({record['release']}, pin {record['state']})\n"
+                f"  x86_64 SHA256: {record['digest']}\n"
             )
     return 0
 

@@ -53,9 +53,9 @@ v2.27.2，新版本只在官方文件服务 [`release.66666.host`](https://relea
 [`overrides/luci-app-lucky/lucky`](https://github.com/hellomrli/my-openwrt-packages/tree/main/overrides/luci-app-lucky/lucky)
 固定核心包 Makefile——否则每 6 小时的同步会把它退回 2.27.2。构建前由
 [`.github/scripts/pin-lucky-source.py`](../.github/scripts/pin-lucky-source.py) 取官方最新发布，
-回写 `PKG_VERSION` / `PKG_SOURCE_URL` 和逐架构哈希表（未列出的架构退回 `skip`，由
-`make download` 自行判定），并打印实际使用的版本。服务不可达时保留镜像里的 pin，交给
-`make download`；镜像没能给出指向该服务的 Makefile 时直接失败，不会静默退回 2.27.2。
+回写 `PKG_VERSION` / `PKG_SOURCE_URL` 和逐架构哈希表。两个固件目标都要求 x86_64 的 SHA256；
+官方清单缺少该摘要即停止，不会降级为 `skip`。服务不可达时只允许沿用带有 x86_64 摘要且符合
+`LUCKY_VERSION`（如有指定）的镜像 pin。发布来源清单记录实际使用的版本和 x86_64 摘要。
 LuCI 界面和 Lucky 核心使用独立版本号，不要求两者一致；具体版本、来源和哈希以每次
 Release 的包清单与 `*_packages.txt` 为准。
 需要钉住某个版本时设置 `LUCKY_VERSION=3.1.4`。同一数字版本优先正式版；若只有 beta/rc

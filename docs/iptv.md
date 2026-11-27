@@ -112,7 +112,7 @@ Actions → OpenWrt Builder → Run workflow，`branches` 填 `iptv`（只编译
 Release 标签为 `immortalwrt-iptv-*`，同时附带两个可独立安装的 APK。
 更新检查使用上游 `master` commit，但与 master/Honk 固件分别记录发布成功标记。
 
-源码目录：`packages/gxmobile-scan` 和 `packages/luci-app-gxmobile`。
+源码目录：`packages/gxmobile-scan` 和 `packages/luci-app-gxmobile`。独立插件库从本仓库的同一提交成对导出这两个目录；修复只需先合入本仓库，导出提交见[插件库来源表](https://github.com/hellomrli/my-openwrt-packages/blob/main/SYNCED_SOURCES.md)。
 把两个目录复制到 OpenWrt 源码树的 `package/` 下，安装 packages/luci feeds 后选择组件：
 
 ```sh
