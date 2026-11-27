@@ -27,7 +27,7 @@ ssh root@192.168.50.1
 <!-- BUILD_TABLE_START -->
 | 构建目标 | 构建状态 | 最新版本 | 发布时间 | Release | 推荐下载 |
 |----------|----------|----------|----------|---------|----------|
-| ImmortalWrt `master`（Honk） | 已发布 | `immortalwrt-master-2026.11.24-2034` | 2026-11-24 20:34 CST | [下载](https://github.com/hellomrli/my-ImmortalWrt/releases/tag/immortalwrt-master-2026.11.24-2034) | `squashfs-combined-efi.img.gz` |
+| ImmortalWrt `master`（Honk） | 已发布 | `immortalwrt-master-2026.11.28-0139` | 2026-11-28 01:40 CST | [下载](https://github.com/hellomrli/my-ImmortalWrt/releases/tag/immortalwrt-master-2026.11.28-0139) | `squashfs-combined-efi.img.gz` |
 | ImmortalWrt `iptv`（上游 master） | 已发布 | `immortalwrt-iptv-2026.11.24-2031` | 2026-11-24 20:31 CST | [下载](https://github.com/hellomrli/my-ImmortalWrt/releases/tag/immortalwrt-iptv-2026.11.24-2031) | `squashfs-combined-efi.img.gz` |
 
 > 此表由 GitHub Actions 自动更新；新 Release 发布后会同步最新版本和链接。
